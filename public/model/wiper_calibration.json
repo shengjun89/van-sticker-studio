@@ -1,0 +1,60 @@
+{
+  "sourceSha256": "3fcc682724df621010e8d992e38379c63a346599988b3edfe476cccafb66042f",
+  "method": "User-requested lower-edge 180-degree tandem demonstration: 500 mm blades, roots at Y=1.575 m with 520 mm spacing and overlapping swept regions. Original rubber cross-sections conform to measured glazing throughout the upper semicircle. Custom display motion, not factory dimensions.",
+  "normal": [
+    -0.6893489020506539,
+    0.7244294936303725,
+    0
+  ],
+  "maxDegrees": 180,
+  "steps": 96,
+  "wipers": [
+    {
+      "id": "wiper-1",
+      "oldRoot": [
+        -2.0949716567993164,
+        1.5528626441955566,
+        0.04408770054578781
+      ],
+      "pivot": [
+        -2.075873973720558,
+        1.575,
+        0.21282
+      ],
+      "bladeLengthMeters": 0.5,
+      "nominalOuterSweepRadiusMeters": 0.58,
+      "nominalInnerSweepRadiusMeters": 0.08,
+      "parkedBladeMaxChangeMeters": 0.014027833938598633,
+      "minGlassClearanceMeters": 0.00314090972358283,
+      "maxGlassClearanceMeters": 0.016346465669494492,
+      "bladeVertices": 402,
+      "armVertices": 30,
+      "maximumInterpolationCorrectionMeters": 0.0024874056077607938
+    },
+    {
+      "id": "wiper-2",
+      "oldRoot": [
+        -2.0949716567993164,
+        1.5528626441955566,
+        -0.13865910470485687
+      ],
+      "pivot": [
+        -2.075848161819194,
+        1.575,
+        -0.30718
+      ],
+      "bladeLengthMeters": 0.5,
+      "nominalOuterSweepRadiusMeters": 0.58,
+      "nominalInnerSweepRadiusMeters": 0.08,
+      "parkedBladeMaxChangeMeters": 0.022497892379760742,
+      "minGlassClearanceMeters": 0.003141404378416812,
+      "maxGlassClearanceMeters": 0.017006878723679453,
+      "bladeVertices": 402,
+      "armVertices": 30,
+      "maximumInterpolationCorrectionMeters": 0.0031485914772292536
+    }
+  ],
+  "outputSha256": "337f9eb46725cfbfd1d2fe1fe756e3d51a1d36c1e3cbe2cfeb7a86e8d1719d13",
+  "bytes": 15744936,
+  "preservedFromSha256": "9559fb30548a3ab464fbb628d91f4e3ed39510eadf5a2ebefde8610f2aecd2aa"
+}
