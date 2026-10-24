@@ -26,6 +26,8 @@ const GLASS_DARK = 0x2b3438;
 const RUBBER_DARK = 0x1c1e20;
 const CANVAS_BEIGE = 0xd8cdb4;
 const WHEEL_DARK = 0x222528;
+const SLIDE_OUT_TAN = 0xcbb489;
+const FIXTURE_WHITE = 0xf2f0ea;
 
 function box(
   length: number,
@@ -335,28 +337,143 @@ function buildTrailerBody(config: BodyConfig): THREE.Group {
 }
 
 /**
+ * Frame the add-on builders share: body dims in metres, the floor the
+ * family builder used, and the vertical center side/rear add-ons hang
+ * from. Pickup slide-outs hang from the camper box (bed floor to roof)
+ * instead of the cab floor. Values mirror the family builders above.
+ */
+function schematicFrame(config: BodyConfig): {
+  L: number;
+  W: number;
+  H: number;
+  floorY: number;
+  slideY: number;
+} {
+  const L = config.lengthMm / 1000;
+  const W = config.widthMm / 1000;
+  const H = config.heightMm / 1000;
+  let floorY = 0.55;
+  if (config.vehicleKind === 'camper') floorY = 0.48;
+  else if (config.vehicleKind === 'offroad') floorY = 0.62;
+  else if (isTowableKind(config.vehicleKind)) floorY = 0.6;
+  const slideY =
+    config.vehicleKind === 'motorhome-t'
+      ? (0.85 + H) / 2
+      : (floorY + H) / 2;
+  return { L, W, H, floorY, slideY };
+}
+
+/** Slice 4: slide-out boxes protruding from the chosen face. */
+function addSlideOuts(group: THREE.Group, config: BodyConfig): void {
+  const { L, W, slideY } = schematicFrame(config);
+  for (const slideOut of config.slideOuts) {
+    const len = slideOut.lengthMm / 1000;
+    const depth = slideOut.depthMm / 1000;
+    if (slideOut.side === 'left') {
+      group.add(
+        box(len, 1.2, depth, SLIDE_OUT_TAN, slideOut.centerMm / 1000, slideY, -(W / 2 + depth / 2)),
+      );
+    } else if (slideOut.side === 'right') {
+      group.add(
+        box(len, 1.2, depth, SLIDE_OUT_TAN, slideOut.centerMm / 1000, slideY, W / 2 + depth / 2),
+      );
+    } else {
+      group.add(
+        box(depth, 1.2, W * 0.8, SLIDE_OUT_TAN, L / 2 + depth / 2, slideY, 0),
+      );
+    }
+  }
+}
+
+/** Slice 4: one mesh per checked accessory, on its mount surface. */
+function addAccessories(group: THREE.Group, config: BodyConfig): void {
+  const { L, W, H, floorY, slideY } = schematicFrame(config);
+  const roofY = H + 0.08;
+  for (const accessory of config.accessories) {
+    const pos = accessory.positionMm / 1000;
+    if (accessory.id === 'roof-rack') {
+      group.add(box(1.6, 0.08, W * 0.8, RUBBER_DARK, pos, roofY + 0.06, 0));
+    } else if (accessory.id === 'roof-platform') {
+      group.add(box(2.0, 0.06, W * 0.85, RUBBER_DARK, pos, roofY + 0.05, 0));
+    } else if (accessory.id === 'storage-box') {
+      group.add(box(1.2, 0.35, W * 0.6, BODY_CREAM, pos, roofY + 0.175, 0));
+    } else if (accessory.id === 'awning') {
+      group.add(box(2.2, 0.05, 1.0, CANVAS_BEIGE, pos, H - 0.35, W / 2 + 0.5));
+    } else if (accessory.id === 'ladder') {
+      group.add(box(0.08, 1.6, 0.4, RUBBER_DARK, L / 2 + 0.06, slideY, pos));
+    } else if (accessory.id === 'bike-rack') {
+      group.add(box(0.5, 0.08, 1.2, RUBBER_DARK, L / 2 + 0.28, slideY, pos));
+    } else if (accessory.id === 'spare-tire') {
+      const tire = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.35, 0.2, 24),
+        new THREE.MeshStandardMaterial({ color: WHEEL_DARK, roughness: 0.9 }),
+      );
+      tire.rotation.z = Math.PI / 2;
+      tire.position.set(L / 2 + 0.15, slideY, pos);
+      group.add(tire);
+    } else if (accessory.id === 'snorkel') {
+      group.add(box(0.15, 1.2, 0.15, RUBBER_DARK, pos, slideY + 0.3, W / 2 + 0.08));
+    } else if (accessory.id === 'winch') {
+      group.add(box(0.2, 0.25, 0.8, RUBBER_DARK, -L / 2 - 0.12, floorY + 0.25, pos));
+    } else if (accessory.id === 'bull-bar') {
+      group.add(box(0.15, 0.5, W * 0.9, RUBBER_DARK, -L / 2 - 0.15, floorY + 0.35, 0));
+    }
+  }
+}
+
+/** Slice 4: roof fixtures sit on the fixed roof, never the raised slab. */
+function addRoofFixtures(group: THREE.Group, config: BodyConfig): void {
+  const { H } = schematicFrame(config);
+  const roofY = H + 0.08;
+  for (const fixture of config.roofFixtures) {
+    const pos = fixture.positionMm / 1000;
+    if (fixture.kind === 'skylight') {
+      group.add(box(0.8, 0.06, 0.6, GLASS_DARK, pos, roofY + 0.03, 0));
+    } else if (fixture.kind === 'vent') {
+      group.add(box(0.4, 0.12, 0.4, BODY_CREAM, pos, roofY + 0.06, 0));
+    } else {
+      group.add(box(1.0, 0.25, 0.7, FIXTURE_WHITE, pos, roofY + 0.125, 0));
+    }
+  }
+}
+
+/**
  * Build a schematic body group from a BodyConfig. The caller owns the
  * group and should dispose it (traverse geometry/material dispose) on
  * rebuild/unmount.
  */
 export function buildParametricBody(config: BodyConfig): THREE.Group {
-  if (isTowableKind(config.vehicleKind)) return buildTrailerBody(config);
-  switch (config.vehicleKind) {
-    case 'motorhome-a':
-      return buildBusBody(config);
-    case 'motorhome-c':
-    case 'micro-c':
-      return buildCBody(config);
-    case 'motorhome-t':
-      return buildPickupBody(config);
-    case 'camper':
-      return buildVanBody(config, 0.48, 0.32);
-    case 'offroad':
-      return buildVanBody(config, 0.62, 0.42);
-    case 'motorhome-b':
-    default:
-      return buildVanBody(config, 0.55, 0.36);
+  let group: THREE.Group;
+  if (isTowableKind(config.vehicleKind)) {
+    group = buildTrailerBody(config);
+  } else {
+    switch (config.vehicleKind) {
+      case 'motorhome-a':
+        group = buildBusBody(config);
+        break;
+      case 'motorhome-c':
+      case 'micro-c':
+        group = buildCBody(config);
+        break;
+      case 'motorhome-t':
+        group = buildPickupBody(config);
+        break;
+      case 'camper':
+        group = buildVanBody(config, 0.48, 0.32);
+        break;
+      case 'offroad':
+        group = buildVanBody(config, 0.62, 0.42);
+        break;
+      case 'motorhome-b':
+      default:
+        group = buildVanBody(config, 0.55, 0.36);
+        break;
+    }
   }
+  addSlideOuts(group, config);
+  addAccessories(group, config);
+  addRoofFixtures(group, config);
+  return group;
 }
 
 /**

@@ -91,3 +91,76 @@ void test('schematic body builds for every roof type, open and closed', () => {
     }
   }
 });
+
+void test('left slide-out extends the schematic width by its depth', () => {
+  const plain = buildParametricBody(DEFAULT_BODY_CONFIG);
+  plain.updateMatrixWorld(true);
+  const plainBox = new THREE.Box3().setFromObject(plain);
+  const extended = buildParametricBody({
+    ...DEFAULT_BODY_CONFIG,
+    slideOuts: [{ side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 500 }],
+  });
+  extended.updateMatrixWorld(true);
+  const extendedBox = new THREE.Box3().setFromObject(extended);
+  assert.ok(extendedBox.min.z < -1.5, `slide-out z min ${extendedBox.min.z}`);
+  assert.ok(extendedBox.min.z < plainBox.min.z - 0.4, 'slide-out sticks out left');
+});
+
+void test('rear slide-out and awning extend length and width', () => {
+  const rear = buildParametricBody({
+    ...DEFAULT_BODY_CONFIG,
+    slideOuts: [{ side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 }],
+  });
+  rear.updateMatrixWorld(true);
+  const rearBox = new THREE.Box3().setFromObject(rear);
+  assert.ok(rearBox.max.x > 3.3, `rear slide-out x max ${rearBox.max.x}`);
+  const awning = buildParametricBody({
+    ...DEFAULT_BODY_CONFIG,
+    accessories: [{ id: 'awning', positionMm: 0 }],
+  });
+  awning.updateMatrixWorld(true);
+  const awningBox = new THREE.Box3().setFromObject(awning);
+  assert.ok(awningBox.max.z > 2.0, `awning z max ${awningBox.max.z}`);
+});
+
+void test('roof AC fixture raises the schematic top', () => {
+  const plain = buildParametricBody(DEFAULT_BODY_CONFIG);
+  plain.updateMatrixWorld(true);
+  const plainTop = new THREE.Box3().setFromObject(plain).max.y;
+  const fitted = buildParametricBody({
+    ...DEFAULT_BODY_CONFIG,
+    roofFixtures: [{ kind: 'ac', positionMm: 0 }],
+  });
+  fitted.updateMatrixWorld(true);
+  const fittedTop = new THREE.Box3().setFromObject(fitted).max.y;
+  assert.ok(fittedTop > plainTop + 0.15, `ac top ${fittedTop} vs ${plainTop}`);
+});
+
+void test('every add-on adds exactly one mesh', () => {
+  const plain = buildParametricBody(DEFAULT_BODY_CONFIG);
+  const loaded = buildParametricBody({
+    ...DEFAULT_BODY_CONFIG,
+    slideOuts: [{ side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 500 }],
+    accessories: [
+      { id: 'roof-rack', positionMm: 0 },
+      { id: 'ladder', positionMm: 0 },
+      { id: 'awning', positionMm: 0 },
+      { id: 'bike-rack', positionMm: 0 },
+      { id: 'spare-tire', positionMm: 0 },
+      { id: 'storage-box', positionMm: 0 },
+      { id: 'roof-platform', positionMm: 0 },
+      { id: 'snorkel', positionMm: -2000 },
+      { id: 'winch', positionMm: 0 },
+      { id: 'bull-bar', positionMm: 0 },
+    ],
+    roofFixtures: [{ kind: 'skylight', positionMm: 0 }],
+  });
+  const count = (group: THREE.Group) => {
+    let n = 0;
+    group.traverse((object) => {
+      if (object instanceof THREE.Mesh) n += 1;
+    });
+    return n;
+  };
+  assert.equal(count(loaded) - count(plain), 12);
+});

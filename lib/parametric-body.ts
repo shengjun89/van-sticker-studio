@@ -8,6 +8,14 @@
  * envelope, and the constraint engine treats blue-plate lines as
  * applying only to blue-plate kinds.
  *
+ * Slice 4 scope: scheme doc groups 4 and 5 (finalized parts only) —
+ * slide-out compartments (count 0-3, side, depth) checked against the
+ * prototype side openings, the exterior accessory library (checkbox +
+ * position, instantiated on the schematic), and roof fixtures
+ * (skylight / vent / AC) checked against the open pop-up span.
+ * Announcement database, interior panel and regional limits are the
+ * scheme doc's pending section 7 items and are NOT built here.
+ *
  * PROTOTYPE ENVELOPES, NOT ANNOUNCEMENT FIGURES: the per-kind ranges
  * below are plausible market/regulation envelopes (road limits
  * width 2550 mm and height 4000 mm; blue-plate lines 6000 mm /
@@ -83,6 +91,47 @@ export function isBluePlateKind(kind: VehicleKind): boolean {
   );
 }
 
+export type SlideOutSide = 'left' | 'right' | 'rear';
+
+export interface SlideOut {
+  side: SlideOutSide;
+  /** Longitudinal center from the vehicle center, mm (rear: unused). */
+  centerMm: number;
+  /** Length along the vehicle, mm. */
+  lengthMm: number;
+  /** Extension depth outward from the body face, mm. */
+  depthMm: number;
+}
+
+export type AccessoryId =
+  | 'roof-rack'
+  | 'ladder'
+  | 'awning'
+  | 'bike-rack'
+  | 'spare-tire'
+  | 'storage-box'
+  | 'roof-platform'
+  | 'snorkel'
+  | 'winch'
+  | 'bull-bar';
+
+export interface Accessory {
+  id: AccessoryId;
+  /**
+   * Position parameter, mm: longitudinal from the vehicle center for
+   * x-axis mounts, lateral from the center for z-axis mounts.
+   */
+  positionMm: number;
+}
+
+export type RoofFixtureKind = 'skylight' | 'vent' | 'ac';
+
+export interface RoofFixture {
+  kind: RoofFixtureKind;
+  /** Longitudinal position from the vehicle center, mm. */
+  positionMm: number;
+}
+
 export interface BodyConfig {
   /** Logic driver for envelopes, constraints and the schematic. */
   vehicleKind: VehicleKind;
@@ -104,6 +153,12 @@ export interface BodyConfig {
   popUpOpen: boolean;
   /** Null when the user has not entered a mass estimate. */
   estimatedMassKg: number | null;
+  /** Slide-out compartments, 0-3 (scheme doc group 4). */
+  slideOuts: SlideOut[];
+  /** Checked exterior accessories with position parameters (group 5). */
+  accessories: Accessory[];
+  /** Roof fixtures: skylight / vent / AC outdoor unit (group 3). */
+  roofFixtures: RoofFixture[];
 }
 
 /** Prototype wheelbase presets (mm) for motorhome B. */
@@ -306,6 +361,9 @@ function kindConfig(
     slopedAngleDeg: 12,
     popUpOpen: false,
     estimatedMassKg: null,
+    slideOuts: [],
+    accessories: [],
+    roofFixtures: [],
   };
 }
 
@@ -335,6 +393,9 @@ export const KIND_DEFAULTS: Record<VehicleKind, BodyConfig> = {
     slopedAngleDeg: 12,
     popUpOpen: false,
     estimatedMassKg: null,
+    slideOuts: [],
+    accessories: [],
+    roofFixtures: [],
   },
   'motorhome-c': kindConfig(
     'motorhome-c',
@@ -465,6 +526,301 @@ export const SLOPED_ANGLE_MIN_DEG = 5;
 export const SLOPED_ANGLE_MAX_DEG = 25;
 export const MIN_TOTAL_OVERHANG_MM = 800;
 
+/** Slice 4: slide-out limits (scheme doc group 4, count 0-3). */
+export const SLIDE_OUT_MAX_COUNT = 3;
+export const SLIDE_OUT_MIN_LENGTH_MM = 600;
+export const SLIDE_OUT_MAX_LENGTH_MM = 2400;
+export const SLIDE_OUT_DEPTH_MIN_MM = 200;
+export const SLIDE_OUT_DEPTH_MAX_MM = 800;
+/** Clear length kept free at each body end for a slide-out. */
+export const SLIDE_OUT_END_MARGIN_MM = 200;
+
+/**
+ * Prototype side-opening layout the slide-out check runs against
+ * (scheme doc group 4: side door + two side windows per side,
+ * symmetric, so one interval set serves both sides). Widths scale
+ * with body length and cap at realistic values, which keeps the three
+ * zones disjoint for every envelope length: the door gap to the front
+ * window is at least 0.045 * length, the gap to the rear window at
+ * least 0.265 * length. These zones are the constraint reference; the
+ * schematic's drawn windows are decorative and may differ.
+ * Coordinates are mm from the vehicle center, front negative.
+ */
+export interface BodyOpening {
+  startMm: number;
+  endMm: number;
+}
+
+export function sideOpenings(config: BodyConfig): BodyOpening[] {
+  const L = config.lengthMm;
+  const doorW = Math.min(800, 0.12 * L);
+  const winW = Math.min(1000, 0.15 * L);
+  return [
+    { startMm: -0.38 * L - winW / 2, endMm: -0.38 * L + winW / 2 },
+    { startMm: -0.2 * L - doorW / 2, endMm: -0.2 * L + doorW / 2 },
+    { startMm: 0.2 * L - winW / 2, endMm: 0.2 * L + winW / 2 },
+  ];
+}
+
+/** Strict interval overlap; touching edges do not count as overlap. */
+export function intervalsOverlap(
+  a: BodyOpening,
+  b: BodyOpening,
+): boolean {
+  return a.startMm < b.endMm && b.startMm < a.endMm;
+}
+
+function slideOutInterval(slideOut: SlideOut): BodyOpening {
+  return {
+    startMm: slideOut.centerMm - slideOut.lengthMm / 2,
+    endMm: slideOut.centerMm + slideOut.lengthMm / 2,
+  };
+}
+
+/**
+ * Nearest legal center for a side slide-out, or null when no placement
+ * fits. Candidates are the desired center, the body bounds, and the
+ * positions adjacent to every blocker (opening or already-placed
+ * sibling on the same side); the nearest fitting candidate wins.
+ * Rear slide-outs have no center placement (they extend from the rear
+ * face), so this returns null for them — the panel and clampToLegal
+ * handle rear slide-outs by the at-most-one rule instead.
+ */
+export function resolveSlideOutCenter(
+  desiredMm: number,
+  lengthMm: number,
+  side: SlideOutSide,
+  config: BodyConfig,
+  siblings: SlideOut[],
+): number | null {
+  if (side === 'rear') return null;
+  const L = config.lengthMm;
+  const minC = -L / 2 + lengthMm / 2 + SLIDE_OUT_END_MARGIN_MM;
+  const maxC = L / 2 - lengthMm / 2 - SLIDE_OUT_END_MARGIN_MM;
+  if (minC > maxC) return null;
+  const blockers: BodyOpening[] = [...sideOpenings(config)];
+  for (const sibling of siblings) {
+    if (sibling.side === side) blockers.push(slideOutInterval(sibling));
+  }
+  const fits = (center: number): boolean => {
+    if (center < minC || center > maxC) return false;
+    const interval: BodyOpening = {
+      startMm: center - lengthMm / 2,
+      endMm: center + lengthMm / 2,
+    };
+    return blockers.every((blocker) => !intervalsOverlap(interval, blocker));
+  };
+  if (fits(desiredMm)) return desiredMm;
+  const candidates: number[] = [minC, maxC];
+  for (const blocker of blockers) {
+    candidates.push(
+      blocker.startMm - lengthMm / 2,
+      blocker.endMm + lengthMm / 2,
+    );
+  }
+  let best: number | null = null;
+  for (const candidate of candidates) {
+    if (!fits(candidate)) continue;
+    if (
+      best === null ||
+      Math.abs(candidate - desiredMm) < Math.abs(best - desiredMm)
+    ) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
+ * Repair a slide-out list for a config: trim to the count cap, clamp
+ * depth and length, snap each side slide-out to its nearest legal
+ * center (dropping it when none exists), and keep at most one rear
+ * slide-out (rear slide-outs share one face and have no lateral
+ * separation in this model).
+ */
+export function repairSlideOuts(config: BodyConfig): SlideOut[] {
+  const maxLen = Math.max(
+    SLIDE_OUT_MIN_LENGTH_MM,
+    config.lengthMm - 2 * SLIDE_OUT_END_MARGIN_MM,
+  );
+  const placed: SlideOut[] = [];
+  let rearKept = false;
+  for (const slideOut of config.slideOuts.slice(0, SLIDE_OUT_MAX_COUNT)) {
+    const depthMm = Math.max(
+      SLIDE_OUT_DEPTH_MIN_MM,
+      Math.min(slideOut.depthMm, SLIDE_OUT_DEPTH_MAX_MM),
+    );
+    const lengthMm = Math.max(
+      SLIDE_OUT_MIN_LENGTH_MM,
+      Math.min(slideOut.lengthMm, SLIDE_OUT_MAX_LENGTH_MM, maxLen),
+    );
+    if (slideOut.side === 'rear') {
+      if (rearKept) continue;
+      rearKept = true;
+      placed.push({ ...slideOut, depthMm, lengthMm });
+      continue;
+    }
+    const centerMm = resolveSlideOutCenter(
+      slideOut.centerMm,
+      lengthMm,
+      slideOut.side,
+      config,
+      placed,
+    );
+    if (centerMm === null) continue;
+    placed.push({ ...slideOut, depthMm, lengthMm, centerMm });
+  }
+  return placed;
+}
+
+/**
+ * Longitudinal span of the moving pop-up section (mm from the center),
+ * or null for fixed roofs. Mirrors the schematic builders: the pop-up
+ * canvas covers the middle 60% centered slightly rearward, the
+ * split-pop-up raises the front 45% from just behind the front face,
+ * and the sloped pop-up pivots the whole roof.
+ */
+export function popUpSpanMm(config: BodyConfig): [number, number] | null {
+  if (!isPopUpRoof(config.roofType)) return null;
+  const L = config.lengthMm;
+  switch (config.roofType) {
+    case 'pop-up':
+      return [-0.25 * L, 0.35 * L];
+    case 'split-pop-up':
+      return [-0.45 * L, 0];
+    case 'sloped-pop-up':
+      return [-0.5 * L, 0.5 * L];
+    default:
+      return null;
+  }
+}
+
+/** True when an open pop-up roof's moving section covers a position. */
+export function roofFixtureClashes(
+  config: BodyConfig,
+  positionMm: number,
+): boolean {
+  const span = popUpSpanMm(config);
+  if (!config.popUpOpen || span === null) return false;
+  return positionMm >= span[0] && positionMm <= span[1];
+}
+
+/**
+ * Nearest roof position outside the open pop-up span, or null when
+ * the whole body is covered (sloped pop-up over a short body still
+ * leaves the 200 mm end margins, so null is rare).
+ */
+export function resolveRoofFixturePosition(
+  desiredMm: number,
+  config: BodyConfig,
+): number | null {
+  const span = popUpSpanMm(config);
+  if (!config.popUpOpen || span === null) return desiredMm;
+  const L = config.lengthMm;
+  const minP = -L / 2 + SLIDE_OUT_END_MARGIN_MM;
+  const maxP = L / 2 - SLIDE_OUT_END_MARGIN_MM;
+  const candidates = [span[0] - 1, span[1] + 1];
+  let best: number | null = null;
+  for (const candidate of candidates) {
+    if (candidate < minP || candidate > maxP) continue;
+    if (roofFixtureClashes(config, candidate)) continue;
+    if (
+      best === null ||
+      Math.abs(candidate - desiredMm) < Math.abs(best - desiredMm)
+    ) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/** Repair roof fixtures for a config: move clashing ones out, drop the rest. */
+export function repairRoofFixtures(config: BodyConfig): RoofFixture[] {
+  const repaired: RoofFixture[] = [];
+  for (const fixture of config.roofFixtures) {
+    if (!roofFixtureClashes(config, fixture.positionMm)) {
+      repaired.push(fixture);
+      continue;
+    }
+    const positionMm = resolveRoofFixturePosition(
+      fixture.positionMm,
+      config,
+    );
+    if (positionMm === null) continue;
+    repaired.push({ ...fixture, positionMm });
+  }
+  return repaired;
+}
+
+/**
+ * Accessory mount table (scheme doc group 5). Axis x means the panel's
+ * position slider moves the item along the body; axis z moves it
+ * laterally across its face; fixed items (bull bar) span the face and
+ * take no position slider.
+ */
+export interface AccessoryMeta {
+  mount: 'roof' | 'side' | 'rear' | 'front';
+  axis: 'x' | 'z' | 'fixed';
+}
+
+export const ACCESSORY_META: Record<AccessoryId, AccessoryMeta> = {
+  'roof-rack': { mount: 'roof', axis: 'x' },
+  ladder: { mount: 'rear', axis: 'z' },
+  awning: { mount: 'side', axis: 'x' },
+  'bike-rack': { mount: 'rear', axis: 'z' },
+  'spare-tire': { mount: 'rear', axis: 'z' },
+  'storage-box': { mount: 'roof', axis: 'x' },
+  'roof-platform': { mount: 'roof', axis: 'x' },
+  snorkel: { mount: 'front', axis: 'x' },
+  winch: { mount: 'front', axis: 'z' },
+  'bull-bar': { mount: 'front', axis: 'fixed' },
+};
+
+/** Slider range for an accessory's position, or null for fixed items. */
+export function accessoryPositionRange(
+  id: AccessoryId,
+  config: BodyConfig,
+): { minMm: number; maxMm: number } | null {
+  const meta = ACCESSORY_META[id];
+  if (meta.axis === 'fixed') return null;
+  if (meta.axis === 'z') {
+    const half = Math.max(0, config.widthMm / 2 - 300);
+    return { minMm: -half, maxMm: half };
+  }
+  if (id === 'snorkel') {
+    return {
+      minMm: -config.lengthMm / 2,
+      maxMm: -config.lengthMm / 2 + 1000,
+    };
+  }
+  const half = Math.max(0, config.lengthMm / 2 - 300);
+  return { minMm: -half, maxMm: half };
+}
+
+/** Default position for a newly checked accessory (centered, in range). */
+export function defaultAccessoryPosition(
+  id: AccessoryId,
+  config: BodyConfig,
+): number {
+  if (id === 'snorkel') return -config.lengthMm / 2 + 500;
+  return 0;
+}
+
+/** Clamp every accessory position into its range (fixed items to 0). */
+export function clampAccessoryPositions(config: BodyConfig): Accessory[] {
+  return config.accessories.map((accessory) => {
+    const range = accessoryPositionRange(accessory.id, config);
+    if (range === null) return { ...accessory, positionMm: 0 };
+    return {
+      ...accessory,
+      positionMm: Math.max(
+        range.minMm,
+        Math.min(accessory.positionMm, range.maxMm),
+      ),
+    };
+  });
+}
+
 /**
  * Constraint engine (doc section 3). Pure function, fully unit-tested.
  * Blue-plate length/mass lines apply only to blue-plate kinds: A-type
@@ -557,6 +913,74 @@ export function checkBodyConstraints(config: BodyConfig): ConstraintResult[] {
     code:
       config.widthMm <= MAX_BODY_WIDTH_MM ? 'width-ok' : 'width-over',
   });
+  // Slice 4: slide-out count, depth, overlap with side openings and
+  // same-side siblings, plus the at-most-one rear slide-out rule.
+  results.push({
+    level:
+      config.slideOuts.length <= SLIDE_OUT_MAX_COUNT ? 'pass' : 'fail',
+    code:
+      config.slideOuts.length <= SLIDE_OUT_MAX_COUNT
+        ? 'slideout-count-ok'
+        : 'slideout-count-over',
+  });
+  const depthBad = config.slideOuts.some(
+    (slideOut) =>
+      slideOut.depthMm < SLIDE_OUT_DEPTH_MIN_MM ||
+      slideOut.depthMm > SLIDE_OUT_DEPTH_MAX_MM,
+  );
+  results.push({
+    level: depthBad ? 'fail' : 'pass',
+    code: depthBad ? 'slideout-depth-range' : 'slideout-depth-ok',
+  });
+  let overlap = false;
+  const placed: SlideOut[] = [];
+  let rearSeen = false;
+  for (const slideOut of config.slideOuts) {
+    if (slideOut.side === 'rear') {
+      if (rearSeen) overlap = true;
+      rearSeen = true;
+      continue;
+    }
+    const interval = slideOutInterval(slideOut);
+    if (sideOpenings(config).some((opening) => intervalsOverlap(interval, opening))) {
+      overlap = true;
+    }
+    if (
+      placed.some(
+        (other) =>
+          other.side === slideOut.side &&
+          intervalsOverlap(interval, slideOutInterval(other)),
+      )
+    ) {
+      overlap = true;
+    }
+    placed.push(slideOut);
+  }
+  results.push({
+    level: overlap ? 'fail' : 'pass',
+    code: overlap ? 'slideout-overlap' : 'slideout-ok',
+  });
+  const boundsBad = config.slideOuts.some((slideOut) => {
+    if (slideOut.side === 'rear') return false;
+    const interval = slideOutInterval(slideOut);
+    return (
+      interval.startMm < -config.lengthMm / 2 + SLIDE_OUT_END_MARGIN_MM ||
+      interval.endMm > config.lengthMm / 2 - SLIDE_OUT_END_MARGIN_MM
+    );
+  });
+  results.push({
+    level: boundsBad ? 'fail' : 'pass',
+    code: boundsBad ? 'slideout-bounds-range' : 'slideout-bounds-ok',
+  });
+  // Slice 4: roof fixtures against the open pop-up span only; closed
+  // roofs and fixed roofs never clash (scheme doc group 3).
+  const clash = config.roofFixtures.some((fixture) =>
+    roofFixtureClashes(config, fixture.positionMm),
+  );
+  results.push({
+    level: clash ? 'fail' : 'pass',
+    code: clash ? 'roof-popup-clash' : 'roof-fixture-ok',
+  });
   return results;
 }
 
@@ -622,5 +1046,10 @@ export function clampToLegal(config: BodyConfig): BodyConfig {
       ROAD_REFERENCE_MAX_HEIGHT_MM - next.heightMm,
     );
   }
+  // Slice 4: repair slide-outs, accessory positions and roof fixtures
+  // against the (possibly just clamped) body dimensions.
+  next.slideOuts = repairSlideOuts(next);
+  next.accessories = clampAccessoryPositions(next);
+  next.roofFixtures = repairRoofFixtures(next);
   return next;
 }

@@ -4,14 +4,22 @@ import {
   DEFAULT_BODY_CONFIG,
   KIND_DEFAULTS,
   ROOF_CLOSED_HEIGHT_MM,
+  SLIDE_OUT_MAX_COUNT,
   TRAILER_HITCH_MM,
   VEHICLE_ENVELOPES,
+  accessoryPositionRange,
   checkBodyConstraints,
   clampToLegal,
   constraintsAllowBuild,
+  defaultAccessoryPosition,
+  intervalsOverlap,
   isTowableKind,
   openHeightMm,
+  repairSlideOuts,
+  resolveSlideOutCenter,
+  sideOpenings,
   type BodyConfig,
+  type SlideOut,
   type VehicleKind,
 } from '../lib/parametric-body.ts';
 
@@ -174,4 +182,165 @@ void test('clampToLegal keeps yellow-plate and towable lengths', () => {
   assert.equal(fixedBus.widthMm, 2550);
   const trailer = { ...KIND_DEFAULTS['towable-a'], lengthMm: 8000 };
   assert.equal(clampToLegal(trailer).lengthMm, 8000);
+});
+
+void test('prototype side openings never overlap each other', () => {
+  for (const lengthMm of [2500, 4400, 5840, 12000]) {
+    const openings = sideOpenings({ ...base, lengthMm });
+    assert.equal(openings.length, 3);
+    for (let i = 0; i < openings.length; i++) {
+      for (let j = i + 1; j < openings.length; j++) {
+        assert.equal(
+          intervalsOverlap(openings[i], openings[j]),
+          false,
+          `length ${lengthMm} openings ${i} and ${j}`,
+        );
+      }
+    }
+  }
+});
+
+void test('slide-out overlap fails on the door zone and passes clear of it', () => {
+  const door = { ...base, slideOuts: [{ side: 'left', centerMm: -1168, lengthMm: 1200, depthMm: 500 } as SlideOut] };
+  assert.equal(code(door, 'slideout-overlap')?.level, 'fail');
+  const clear = { ...base, slideOuts: [{ side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 500 } as SlideOut] };
+  assert.equal(code(clear, 'slideout-ok')?.level, 'pass');
+});
+
+void test('slide-out overlap also catches same-side siblings and second rear', () => {
+  const siblings = {
+    ...base,
+    slideOuts: [
+      { side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+      { side: 'left', centerMm: 500, lengthMm: 1200, depthMm: 500 },
+    ] as SlideOut[],
+  };
+  assert.equal(code(siblings, 'slideout-overlap')?.level, 'fail');
+  const twoRear = {
+    ...base,
+    slideOuts: [
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+    ] as SlideOut[],
+  };
+  assert.equal(code(twoRear, 'slideout-overlap')?.level, 'fail');
+  const oneRear = {
+    ...base,
+    slideOuts: [{ side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 } as SlideOut],
+  };
+  assert.equal(code(oneRear, 'slideout-ok')?.level, 'pass');
+});
+
+void test('slide-out count, depth and bounds rules', () => {
+  const four = {
+    ...base,
+    slideOuts: [0, 1, 2, 3].map(() => ({ side: 'left', centerMm: 0, lengthMm: 600, depthMm: 500 }) as SlideOut),
+  };
+  assert.equal(code(four, 'slideout-count-over')?.level, 'fail');
+  assert.equal(SLIDE_OUT_MAX_COUNT, 3);
+  const shallow = { ...base, slideOuts: [{ side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 100 } as SlideOut] };
+  assert.equal(code(shallow, 'slideout-depth-range')?.level, 'fail');
+  const pastEnd = { ...base, slideOuts: [{ side: 'left', centerMm: 2800, lengthMm: 1200, depthMm: 500 } as SlideOut] };
+  assert.equal(code(pastEnd, 'slideout-bounds-range')?.level, 'fail');
+});
+
+void test('resolveSlideOutCenter snaps to the nearest legal edge', () => {
+  const snapped = resolveSlideOutCenter(-1168, 1200, 'left', base, []);
+  assert.ok(snapped !== null && Math.abs(snapped - -217.6) < 0.01, `snapped ${snapped}`);
+  assert.equal(resolveSlideOutCenter(0, 1200, 'left', base, []), 0);
+  const sibling = { side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 500 } as SlideOut;
+  const dodged = resolveSlideOutCenter(500, 600, 'left', base, [sibling]);
+  assert.ok(dodged !== null && Math.abs(dodged - 1906) < 0.01, `dodged ${dodged}`);
+  assert.equal(resolveSlideOutCenter(0, 2400, 'left', { ...base, lengthMm: 2500 }, []), null);
+  assert.equal(resolveSlideOutCenter(0, 1200, 'rear', base, []), null);
+});
+
+void test('repairSlideOuts snaps, dedups rear and drops the unplaceable', () => {
+  const repaired = repairSlideOuts({
+    ...base,
+    slideOuts: [
+      { side: 'left', centerMm: -1168, lengthMm: 1200, depthMm: 100 },
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+      { side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 900 },
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+    ] as SlideOut[],
+  });
+  // Slice keeps the first three; the third (left, center 0) cannot dodge
+  // both the snapped sibling and the rear window, so it is dropped.
+  assert.equal(repaired.length, 2);
+  assert.equal(repaired[0].depthMm, 200);
+  assert.ok(Math.abs(repaired[0].centerMm - -217.6) < 0.01, `repaired center ${repaired[0].centerMm}`);
+  assert.equal(repaired.filter((s) => s.side === 'rear').length, 1);
+  assert.equal(constraintsAllowBuild(checkBodyConstraints({ ...base, slideOuts: repaired })), true);
+});
+
+void test('repairSlideOuts trims to three and clamps depth', () => {
+  const trimmed = repairSlideOuts({
+    ...base,
+    slideOuts: [
+      { side: 'left', centerMm: 0, lengthMm: 600, depthMm: 500 },
+      { side: 'right', centerMm: 0, lengthMm: 600, depthMm: 500 },
+      { side: 'rear', centerMm: 0, lengthMm: 600, depthMm: 500 },
+      { side: 'left', centerMm: 0, lengthMm: 600, depthMm: 500 },
+    ] as SlideOut[],
+  });
+  assert.equal(trimmed.length, 3);
+  const clamped = repairSlideOuts({
+    ...base,
+    slideOuts: [{ side: 'left', centerMm: 0, lengthMm: 1200, depthMm: 900 } as SlideOut],
+  });
+  assert.equal(clamped.length, 1);
+  assert.equal(clamped[0].depthMm, 800);
+  const deduped = repairSlideOuts({
+    ...base,
+    slideOuts: [
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+    ] as SlideOut[],
+  });
+  assert.equal(deduped.length, 1);
+});
+
+void test('roof fixture clash only counts for an open pop-up roof', () => {
+  const popOpen = { ...base, roofType: 'pop-up' as const, heightMm: 2600, popUpOpen: true, popUpTravelMm: 450, roofFixtures: [{ kind: 'skylight' as const, positionMm: 0 }] };
+  assert.equal(code(popOpen, 'roof-popup-clash')?.level, 'fail');
+  const popClosed = { ...popOpen, popUpOpen: false };
+  assert.equal(code(popClosed, 'roof-fixture-ok')?.level, 'pass');
+  const flatOpen = { ...base, popUpOpen: true, roofFixtures: [{ kind: 'skylight' as const, positionMm: 0 }] };
+  assert.equal(code(flatOpen, 'roof-fixture-ok')?.level, 'pass');
+});
+
+void test('clampToLegal repairs slide-outs, accessories and roof fixtures', () => {
+  const messy: BodyConfig = {
+    ...base,
+    roofType: 'pop-up' as const,
+    heightMm: 2600,
+    popUpOpen: true,
+    popUpTravelMm: 450,
+    slideOuts: [
+      { side: 'left', centerMm: -1168, lengthMm: 1200, depthMm: 100 },
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+      { side: 'rear', centerMm: 0, lengthMm: 1200, depthMm: 500 },
+    ] as SlideOut[],
+    accessories: [
+      { id: 'winch' as const, positionMm: 5000 },
+      { id: 'bull-bar' as const, positionMm: 500 },
+    ],
+    roofFixtures: [{ kind: 'skylight' as const, positionMm: 0 }],
+  };
+  const fixed = clampToLegal(messy);
+  assert.equal(fixed.slideOuts.length, 2);
+  assert.equal(fixed.slideOuts[0].depthMm, 200);
+  assert.equal(fixed.accessories.find((a) => a.id === 'winch')?.positionMm, 810);
+  assert.equal(fixed.accessories.find((a) => a.id === 'bull-bar')?.positionMm, 0);
+  assert.ok(Math.abs((fixed.roofFixtures[0]?.positionMm ?? 0) - -1461) < 0.01, `fixture ${fixed.roofFixtures[0]?.positionMm}`);
+  assert.equal(constraintsAllowBuild(checkBodyConstraints(fixed)), true);
+});
+
+void test('accessory position ranges follow mount and axis', () => {
+  assert.deepEqual(accessoryPositionRange('snorkel', base), { minMm: -2920, maxMm: -1920 });
+  assert.deepEqual(accessoryPositionRange('ladder', base), { minMm: -810, maxMm: 810 });
+  assert.equal(accessoryPositionRange('bull-bar', base), null);
+  assert.equal(defaultAccessoryPosition('snorkel', base), -2420);
+  assert.equal(defaultAccessoryPosition('roof-rack', base), 0);
 });

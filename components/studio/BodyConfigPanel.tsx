@@ -2,29 +2,46 @@
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { t, type Lang, type StringKey } from '@/lib/i18n';
 import type {
+  Accessory,
+  AccessoryId,
   BodyConfig,
   ConstraintLevel,
   ConstraintResult,
+  RoofFixtureKind,
   RoofType,
+  SlideOut,
+  SlideOutSide,
   VehicleKind,
   WheelbaseClass,
 } from '@/lib/parametric-body';
 import {
+  ACCESSORY_META,
   DEFAULT_BODY_CONFIG,
   KIND_DEFAULTS,
   MIN_TOTAL_OVERHANG_MM,
   MOTORHOME_KINDS,
   OTHER_KINDS,
   ROOF_CLOSED_HEIGHT_MM,
+  SLIDE_OUT_DEPTH_MAX_MM,
+  SLIDE_OUT_DEPTH_MIN_MM,
+  SLIDE_OUT_END_MARGIN_MM,
+  SLIDE_OUT_MAX_COUNT,
+  SLIDE_OUT_MAX_LENGTH_MM,
+  SLIDE_OUT_MIN_LENGTH_MM,
   TOWABLE_KINDS,
   TRAILER_HITCH_MM,
   VEHICLE_ENVELOPES,
   WHEELBASE_PRESETS_MM,
+  accessoryPositionRange,
+  clampAccessoryPositions,
   clampToLegal,
   constraintsAllowBuild,
+  defaultAccessoryPosition,
   isPopUpRoof,
   isTowableKind,
   openHeightMm,
+  repairSlideOuts,
+  resolveSlideOutCenter,
 } from '@/lib/parametric-body';
 
 const CONSTRAINT_KEY: Record<string, StringKey> = {
@@ -45,6 +62,60 @@ const CONSTRAINT_KEY: Record<string, StringKey> = {
   'width-over': 'bodylab.cWidthOver',
   'yellow-note': 'bodylab.cYellowNote',
   'towable-note': 'bodylab.cTowableNote',
+  'slideout-count-ok': 'bodylab.cSlideCountOk',
+  'slideout-count-over': 'bodylab.cSlideCountOver',
+  'slideout-depth-ok': 'bodylab.cSlideDepthOk',
+  'slideout-depth-range': 'bodylab.cSlideDepthRange',
+  'slideout-ok': 'bodylab.cSlideOk',
+  'slideout-overlap': 'bodylab.cSlideOverlap',
+  'slideout-bounds-ok': 'bodylab.cSlideBoundsOk',
+  'slideout-bounds-range': 'bodylab.cSlideBoundsRange',
+  'roof-fixture-ok': 'bodylab.cRoofFixtureOk',
+  'roof-popup-clash': 'bodylab.cRoofPopupClash',
+};
+
+const SIDE_KEY: Record<SlideOutSide, StringKey> = {
+  left: 'bodylab.sideLeft',
+  right: 'bodylab.sideRight',
+  rear: 'bodylab.sideRear',
+};
+
+const ACCESSORY_KEY: Record<AccessoryId, StringKey> = {
+  'roof-rack': 'bodylab.accRoofRack',
+  ladder: 'bodylab.accLadder',
+  awning: 'bodylab.accAwning',
+  'bike-rack': 'bodylab.accBikeRack',
+  'spare-tire': 'bodylab.accSpareTire',
+  'storage-box': 'bodylab.accStorageBox',
+  'roof-platform': 'bodylab.accRoofPlatform',
+  snorkel: 'bodylab.accSnorkel',
+  winch: 'bodylab.accWinch',
+  'bull-bar': 'bodylab.accBullBar',
+};
+
+const ACCESSORY_IDS: readonly AccessoryId[] = [
+  'roof-rack',
+  'ladder',
+  'awning',
+  'bike-rack',
+  'spare-tire',
+  'storage-box',
+  'roof-platform',
+  'snorkel',
+  'winch',
+  'bull-bar',
+];
+
+const FIXTURE_KEY: Record<RoofFixtureKind, StringKey> = {
+  skylight: 'bodylab.fixtureSkylight',
+  vent: 'bodylab.fixtureVent',
+  ac: 'bodylab.fixtureAc',
+};
+
+const FIXTURE_ADD_KEY: Record<RoofFixtureKind, StringKey> = {
+  skylight: 'bodylab.fixtureAddSkylight',
+  vent: 'bodylab.fixtureAddVent',
+  ac: 'bodylab.fixtureAddAc',
 };
 
 const ROOF_KEY: Record<RoofType, StringKey> = {
@@ -122,6 +193,13 @@ interface Props {
  *   the blue-plate lines so the warnings stay visible; any fail gets a
  *   one-tap "restore legal values" button.
  * - Switching kind restores that kind's defaults wholesale.
+ * - Slice 4: a slide-out edit that would overlap a side door, a window
+ *   or a same-side sibling is refused on the spot and snapped to the
+ *   nearest legal center; a side change to rear is refused when another
+ *   rear slide-out already exists (at most one rear face). Shrinking the
+ *   length re-snaps slide-out centers the same way (dropping one only
+ *   when no placement fits); roof-fixture clashes are flagged, not
+ *   snapped, and the one-tap button repairs them.
  */
 export default function BodyConfigPanel({
   lang,
@@ -153,8 +231,9 @@ export default function BodyConfigPanel({
         config.lengthMm - MIN_TOTAL_OVERHANG_MM,
       ),
     });
-  const setLength = (lengthMm: number) =>
-    set({
+  const setLength = (lengthMm: number) => {
+    const next: BodyConfig = {
+      ...config,
       lengthMm,
       wheelbaseMm: towable
         ? Math.max(
@@ -165,6 +244,81 @@ export default function BodyConfigPanel({
             config.wheelbaseMm,
             lengthMm - MIN_TOTAL_OVERHANG_MM,
           ),
+    };
+    // Shrinking the body re-snaps slide-out centers; one that fits
+    // nowhere is dropped rather than left hanging past the body ends.
+    next.slideOuts = repairSlideOuts(next);
+    onChange(next);
+  };
+  const setWidth = (widthMm: number) => {
+    const next: BodyConfig = { ...config, widthMm };
+    next.accessories = clampAccessoryPositions(next);
+    onChange(next);
+  };
+  const setSlideOut = (index: number, patch: Partial<SlideOut>) => {
+    const current = config.slideOuts[index];
+    if (!current) return;
+    const next: SlideOut = { ...current, ...patch };
+    const siblings = config.slideOuts.filter((_, i) => i !== index);
+    if (next.side === 'rear') {
+      // At most one rear slide-out: refuse a second rear face.
+      if (siblings.some((sibling) => sibling.side === 'rear')) return;
+      set({
+        slideOuts: config.slideOuts.map((s, i) => (i === index ? next : s)),
+      });
+      return;
+    }
+    const centerMm = resolveSlideOutCenter(
+      next.centerMm,
+      next.lengthMm,
+      next.side,
+      config,
+      siblings,
+    );
+    // No legal placement: refuse the edit, keep the previous value.
+    if (centerMm === null) return;
+    next.centerMm = centerMm;
+    set({
+      slideOuts: config.slideOuts.map((s, i) => (i === index ? next : s)),
+    });
+  };
+  const addSlideOut = () => {
+    if (config.slideOuts.length >= SLIDE_OUT_MAX_COUNT) return;
+    const slideOut: SlideOut = {
+      side: 'left',
+      centerMm: 0,
+      lengthMm: 1200,
+      depthMm: 500,
+    };
+    const centerMm = resolveSlideOutCenter(
+      slideOut.centerMm,
+      slideOut.lengthMm,
+      slideOut.side,
+      config,
+      config.slideOuts,
+    );
+    if (centerMm !== null) slideOut.centerMm = centerMm;
+    set({ slideOuts: [...config.slideOuts, slideOut] });
+  };
+  const toggleAccessory = (id: AccessoryId) => {
+    const existing = config.accessories.find((a) => a.id === id);
+    if (existing) {
+      set({
+        accessories: config.accessories.filter((a) => a.id !== id),
+      });
+      return;
+    }
+    const accessory: Accessory = {
+      id,
+      positionMm: defaultAccessoryPosition(id, config),
+    };
+    set({ accessories: [...config.accessories, accessory] });
+  };
+  const setAccessoryPosition = (id: AccessoryId, positionMm: number) =>
+    set({
+      accessories: config.accessories.map((a) =>
+        a.id === id ? { ...a, positionMm } : a,
+      ),
     });
   const popUp = isPopUpRoof(config.roofType);
   const wheelbaseMin = towable ? 800 : env.wheelbaseMinMm;
@@ -278,7 +432,7 @@ export default function BodyConfigPanel({
           unit="mm"
           popKey={popKey}
           onRelease={onRelease}
-          onPick={(widthMm) => set({ widthMm })}
+          onPick={setWidth}
         />
         <Slider
           label={t(lang, 'bodylab.height')}
@@ -375,6 +529,215 @@ export default function BodyConfigPanel({
             </div>
           )}
         </section>
+        <section>
+          <p style={{ fontSize: 13, margin: '0 0 6px' }}>
+            {t(lang, 'bodylab.slideOuts')} ({config.slideOuts.length}/
+            {SLIDE_OUT_MAX_COUNT})
+          </p>
+          <button
+            type="button"
+            disabled={config.slideOuts.length >= SLIDE_OUT_MAX_COUNT}
+            onClick={addSlideOut}
+            style={toggleStyle(false)}
+          >
+            {t(lang, 'bodylab.slideOutAdd')}
+          </button>
+          {config.slideOuts.map((slideOut, index) => {
+            const centerMin =
+              -config.lengthMm / 2 +
+              slideOut.lengthMm / 2 +
+              SLIDE_OUT_END_MARGIN_MM;
+            const centerMax =
+              config.lengthMm / 2 -
+              slideOut.lengthMm / 2 -
+              SLIDE_OUT_END_MARGIN_MM;
+            const lengthMax = Math.max(
+              SLIDE_OUT_MIN_LENGTH_MM,
+              Math.min(
+                SLIDE_OUT_MAX_LENGTH_MM,
+                config.lengthMm - 2 * SLIDE_OUT_END_MARGIN_MM,
+              ),
+            );
+            return (
+              <div
+                key={index}
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  border: '1px solid #c9bba6',
+                  borderRadius: 10,
+                }}
+              >
+                <p style={{ fontSize: 13, margin: '0 0 6px' }}>
+                  {t(lang, 'bodylab.slideOutSide')}
+                </p>
+                <Segmented<SlideOutSide>
+                  options={(Object.keys(SIDE_KEY) as SlideOutSide[]).map(
+                    (key) => ({ value: key, label: t(lang, SIDE_KEY[key]) }),
+                  )}
+                  active={slideOut.side}
+                  onPick={(side) => setSlideOut(index, { side })}
+                />
+                {slideOut.side !== 'rear' && (
+                  <Slider
+                    label={t(lang, 'bodylab.slideOutCenter')}
+                    value={slideOut.centerMm}
+                    min={Math.min(centerMin, centerMax)}
+                    max={Math.max(centerMin, centerMax)}
+                    step={10}
+                    unit="mm"
+                    popKey={popKey}
+                    onRelease={onRelease}
+                    onPick={(centerMm) =>
+                      setSlideOut(index, { centerMm })
+                    }
+                  />
+                )}
+                <Slider
+                  label={t(lang, 'bodylab.slideOutLength')}
+                  value={slideOut.lengthMm}
+                  min={SLIDE_OUT_MIN_LENGTH_MM}
+                  max={lengthMax}
+                  step={10}
+                  unit="mm"
+                  popKey={popKey}
+                  onRelease={onRelease}
+                  onPick={(lengthMm) => setSlideOut(index, { lengthMm })}
+                />
+                <Slider
+                  label={t(lang, 'bodylab.slideOutDepth')}
+                  value={slideOut.depthMm}
+                  min={SLIDE_OUT_DEPTH_MIN_MM}
+                  max={SLIDE_OUT_DEPTH_MAX_MM}
+                  step={10}
+                  unit="mm"
+                  popKey={popKey}
+                  onRelease={onRelease}
+                  onPick={(depthMm) => setSlideOut(index, { depthMm })}
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    set({
+                      slideOuts: config.slideOuts.filter(
+                        (_, i) => i !== index,
+                      ),
+                    })
+                  }
+                  style={{ ...toggleStyle(false), marginTop: 8 }}
+                >
+                  {t(lang, 'bodylab.slideOutRemove')}
+                </button>
+              </div>
+            );
+          })}
+        </section>
+        <section>
+          <p style={{ fontSize: 13, margin: '0 0 6px' }}>
+            {t(lang, 'bodylab.accessories')}
+          </p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {ACCESSORY_IDS.map((id) => {
+              const active = config.accessories.some((a) => a.id === id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleAccessory(id)}
+                  style={toggleStyle(active)}
+                >
+                  {t(lang, ACCESSORY_KEY[id])}
+                </button>
+              );
+            })}
+          </div>
+          {config.accessories.map((accessory) => {
+            const range = accessoryPositionRange(accessory.id, config);
+            if (range === null) return null;
+            const lateral = ACCESSORY_META[accessory.id].axis === 'z';
+            return (
+              <div key={accessory.id} style={{ marginTop: 8 }}>
+                <Slider
+                  label={`${t(lang, ACCESSORY_KEY[accessory.id])} · ${t(lang, lateral ? 'bodylab.accLateral' : 'bodylab.accPosition')}`}
+                  value={accessory.positionMm}
+                  min={range.minMm}
+                  max={range.maxMm}
+                  step={10}
+                  unit="mm"
+                  popKey={popKey}
+                  onRelease={onRelease}
+                  onPick={(positionMm) =>
+                    setAccessoryPosition(accessory.id, positionMm)
+                  }
+                />
+              </div>
+            );
+          })}
+        </section>
+        <section>
+          <p style={{ fontSize: 13, margin: '0 0 6px' }}>
+            {t(lang, 'bodylab.roofFixtures')}
+          </p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(Object.keys(FIXTURE_ADD_KEY) as RoofFixtureKind[]).map(
+              (kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() =>
+                    set({
+                      roofFixtures: [
+                        ...config.roofFixtures,
+                        { kind, positionMm: 0 },
+                      ],
+                    })
+                  }
+                  style={toggleStyle(false)}
+                >
+                  {t(lang, FIXTURE_ADD_KEY[kind])}
+                </button>
+              ),
+            )}
+          </div>
+          {config.roofFixtures.map((fixture, index) => (
+            <div key={index} style={{ marginTop: 8 }}>
+              <Slider
+                label={`${t(lang, FIXTURE_KEY[fixture.kind])} · ${t(lang, 'bodylab.fixturePosition')}`}
+                value={fixture.positionMm}
+                min={-config.lengthMm / 2 + SLIDE_OUT_END_MARGIN_MM}
+                max={config.lengthMm / 2 - SLIDE_OUT_END_MARGIN_MM}
+                step={10}
+                unit="mm"
+                popKey={popKey}
+                onRelease={onRelease}
+                onPick={(positionMm) =>
+                  set({
+                    roofFixtures: config.roofFixtures.map((f, i) =>
+                      i === index ? { ...f, positionMm } : f,
+                    ),
+                  })
+                }
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  set({
+                    roofFixtures: config.roofFixtures.filter(
+                      (_, i) => i !== index,
+                    ),
+                  })
+                }
+                style={{ ...toggleStyle(false), marginTop: 4 }}
+              >
+                {t(lang, 'bodylab.fixtureRemove')}
+              </button>
+            </div>
+          ))}
+        </section>
+        <p style={{ fontSize: 12, margin: 0, opacity: 0.75 }}>
+          {t(lang, 'bodylab.protoNote')}
+        </p>
         <p style={{ fontSize: 13, margin: 0 }}>
           {t(lang, 'bodylab.openHeight', {
             value: openHeightMm(config),
