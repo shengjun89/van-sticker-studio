@@ -116,17 +116,52 @@ void test('catalog carries names and kinds only, ids unique', () => {
   }
   assert.equal(
     MODEL_CATALOG.filter((model) => model.kind === 'motorhome-b').length,
-    9,
+    33,
   );
-  assert.equal(MODEL_CATALOG.length, 30);
+  assert.equal(MODEL_CATALOG.length, 54);
 });
 
-void test('current gate state: zero selectable models, one partial row', () => {
+const V4_COMPLETE_IDS = [
+  'sh6601h4db-s-h2525',
+  'sh6601h4db-s-h2740',
+  'sh6601h4db-s-h2480',
+  'sh6601h4db-s-h2700',
+  'sh6591h4db-h2735',
+  'sh6591h4db-h2520',
+  'sh6592h4db-h2740',
+  'sh6592h4db-h2525',
+  'sh6601h4db-ns-h2525',
+  'sh6601h4db-ns-h2740',
+  'sh6601h4db-ns-h2700',
+  'sh6601h4db-ns-h2480',
+  'sh6591h4db-ns-h2525',
+  'sh6591h4db-ns-h2740',
+  'sh6591h4db-ns-h2480',
+  'sh6591h4db-ns-h2700',
+  'sh6591h4db-s-h2525',
+  'sh6591h4db-s-h2740',
+  'sh6591h4db-s-h2480',
+  'sh6591h4db-s-h2700',
+  'sh6601a4db-h2372',
+  'sh6601a4db-h2577',
+  'sh6601a4db-n-h2372',
+  'sh6601a4db-n-h2577',
+];
+
+void test('current gate state: 24 selectable variants, 11 partial rows', () => {
   assert.deepEqual(registryStatusOf(shippedEntries), {
-    complete: 0,
-    partial: 1,
+    complete: 24,
+    partial: 11,
   });
+  for (const id of V4_COMPLETE_IDS) {
+    assert.equal(
+      isModelSelectableIn(shippedEntries, id),
+      true,
+      `${id} must be selectable`,
+    );
+  }
   for (const model of MODEL_CATALOG) {
+    if (V4_COMPLETE_IDS.includes(model.id)) continue;
     assert.equal(
       isModelSelectableIn(shippedEntries, model.id),
       false,
@@ -137,11 +172,118 @@ void test('current gate state: zero selectable models, one partial row', () => {
   assert.equal(isModelSelectableIn(shippedEntries, 'unknown-model'), false);
 });
 
-void test('configForModelIn returns null without a complete row', () => {
+void test('configForModelIn builds configs only for complete rows', () => {
   for (const model of MODEL_CATALOG) {
+    if (V4_COMPLETE_IDS.includes(model.id)) continue;
     assert.equal(configForModelIn(shippedEntries, model.id), null);
   }
   assert.equal(configForModelIn(shippedEntries, 'nope'), null);
+  const config = configForModelIn(shippedEntries, 'sh6601h4db-s-h2525');
+  assert.ok(config !== null);
+  assert.equal(config.lengthMm, 6005);
+  assert.equal(config.widthMm, 2110);
+  assert.equal(config.heightMm, 2525);
+  assert.equal(config.wheelbaseMm, 3760);
+  assert.equal(config.estimatedMassKg, 4250);
+  assert.equal(config.chassis, 'SH6601H4DB-S');
+});
+
+void test('v4 variant rows split by height only, never paired across fields', () => {
+  const byModel = new Map<string, RegistryEntry[]>();
+  for (const entry of shippedEntries) {
+    if (!V4_COMPLETE_IDS.includes(entry.id)) continue;
+    const list = byModel.get(entry.announcement_model) ?? [];
+    list.push(entry);
+    byModel.set(entry.announcement_model, list);
+  }
+  const heightOptions: Record<string, number[]> = {
+    SH6601H4DB_S: [2525, 2740, 2480, 2700],
+    SH6591H4DB: [2735, 2520],
+    SH6592H4DB: [2740, 2525],
+    SH6601H4DB_NS: [2525, 2740, 2700, 2480],
+    SH6591H4DB_NS: [2525, 2740, 2480, 2700],
+    SH6591H4DB_S: [2525, 2740, 2480, 2700],
+    SH6601A4DB: [2372, 2577],
+    SH6601A4DB_N: [2372, 2577],
+  };
+  const singles: Record<string, { length: number; width: number; wb: number; f: number; r: number; gm: number }> = {
+    SH6601H4DB_S: { length: 6005, width: 2110, wb: 3760, f: 1020, r: 1225, gm: 4250 },
+    SH6591H4DB: { length: 5940, width: 2062, wb: 3760, f: 1020, r: 1160, gm: 4000 },
+    SH6592H4DB: { length: 5940, width: 2062, wb: 3760, f: 1020, r: 1160, gm: 4000 },
+    SH6601H4DB_NS: { length: 6005, width: 2110, wb: 3760, f: 1020, r: 1225, gm: 4250 },
+    SH6591H4DB_NS: { length: 5940, width: 2110, wb: 3760, f: 1020, r: 1160, gm: 4250 },
+    SH6591H4DB_S: { length: 5940, width: 2110, wb: 3760, f: 1020, r: 1160, gm: 4250 },
+    SH6601A4DB: { length: 5995, width: 1998, wb: 4175, f: 845, r: 975, gm: 4100 },
+    SH6601A4DB_N: { length: 5995, width: 1998, wb: 4175, f: 845, r: 975, gm: 4100 },
+  };
+  const keyOf = (model: string) => model.replace(/-/g, '_');
+  for (const [model, rows] of byModel) {
+    const key = keyOf(model);
+    assert.deepEqual(
+      rows.map((row) => row.verified.height_mm),
+      heightOptions[key],
+      `${model} heights must follow announcement order`,
+    );
+    for (const row of rows) {
+      const s = singles[key];
+      assert.equal(row.verified.length_mm, s.length);
+      assert.equal(row.verified.width_mm, s.width);
+      assert.equal(row.verified.wheelbase_mm, s.wb);
+      assert.equal(row.verified.front_overhang_mm, s.f);
+      assert.equal(row.verified.rear_overhang_mm, s.r);
+      assert.equal(row.verified.gross_mass_kg, s.gm);
+      assert.equal(row.chassis_model, '承载式车身');
+    }
+  }
+  assert.equal(byModel.size, 8);
+});
+
+void test('v4 partial rows carry only single-valued fields', () => {
+  const rv = entryForModel(shippedEntries, 'sh5043xljh9db-c');
+  assert.ok(rv !== undefined);
+  assert.equal(rv.announcement_model, 'SH5043XLJH9DB-C');
+  assert.equal(rv.announcement_batch, 374);
+  assert.equal(rv.chassis_model, 'SH1043H7DB-PS');
+  assert.equal(rv.verified.length_mm, 5990);
+  assert.equal(rv.verified.front_overhang_mm, 1020);
+  assert.equal(rv.verified.rear_overhang_mm, 1210);
+  assert.equal(rv.verified.gross_mass_kg, 4495);
+  // Wheelbase is blank in the official text; width/height are option lists.
+  assert.equal(rv.verified.wheelbase_mm, undefined);
+  assert.equal(rv.verified.width_mm, undefined);
+  assert.equal(rv.verified.height_mm, undefined);
+  assert.equal(isEntryComplete(rv), false);
+  const multi = entryForModel(shippedEntries, 'sh6631a4db');
+  assert.ok(multi !== undefined);
+  assert.equal(multi.verified.width_mm, 1998);
+  assert.equal(multi.verified.wheelbase_mm, 4180);
+  assert.equal(multi.verified.front_overhang_mm, 865);
+  assert.equal(multi.verified.gross_mass_kg, 4180);
+  assert.equal(multi.verified.length_mm, undefined);
+  assert.equal(multi.verified.height_mm, undefined);
+  assert.equal(multi.verified.rear_overhang_mm, undefined);
+  assert.equal(isEntryComplete(multi), false);
+});
+
+void test('no new row claims a V80 chassis; seats units stay unknown where unmarked', () => {
+  for (const entry of shippedEntries) {
+    if (entry.id === 'sh5030xjca3d4') continue;
+    assert.notEqual(
+      entry.chassis_model,
+      'SH6501A3D4',
+      `${entry.id} must not claim SH6501A3D4`,
+    );
+  }
+  for (const id of ['sh6631a4db-n', 'sh6501a4db-n', 'sh6571a4db-n']) {
+    const row = entryForModel(shippedEntries, id);
+    assert.ok(row !== undefined);
+    assert.match(row.notes, /载客单位/);
+  }
+  for (const id of ['sh6601a4db-h2372', 'sh6601a4db-n-h2577']) {
+    const row = entryForModel(shippedEntries, id);
+    assert.ok(row !== undefined);
+    assert.match(row.notes, /载客单位/);
+  }
 });
 
 void test('configForEntry builds a registry-driven config', () => {

@@ -115,6 +115,34 @@ export const MODEL_CATALOG: readonly CatalogModel[] = [
   { id: 'tank500', name: '坦克 500', kind: 'offroad' },
   { id: 'bj40', name: 'BJ40', kind: 'offroad' },
   { id: 'wrangler', name: '牧马人', kind: 'offroad' },
+  // MIIT v4 complete variant rows (2026-10-25): one entry per height
+  // option of the 8 single-length bus announcements. Height is the only
+  // multi field for these models, so each row is a genuine variant, not
+  // a pairing invented across fields. IDs match announcement-db.json.
+  { id: 'sh6601h4db-s-h2525', name: 'SH6601H4DB-S（高2525mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-s-h2740', name: 'SH6601H4DB-S（高2740mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-s-h2480', name: 'SH6601H4DB-S（高2480mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-s-h2700', name: 'SH6601H4DB-S（高2700mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-h2735', name: 'SH6591H4DB（高2735mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-h2520', name: 'SH6591H4DB（高2520mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6592h4db-h2740', name: 'SH6592H4DB（高2740mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6592h4db-h2525', name: 'SH6592H4DB（高2525mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-ns-h2525', name: 'SH6601H4DB-NS（高2525mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-ns-h2740', name: 'SH6601H4DB-NS（高2740mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-ns-h2700', name: 'SH6601H4DB-NS（高2700mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601h4db-ns-h2480', name: 'SH6601H4DB-NS（高2480mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-ns-h2525', name: 'SH6591H4DB-NS（高2525mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-ns-h2740', name: 'SH6591H4DB-NS（高2740mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-ns-h2480', name: 'SH6591H4DB-NS（高2480mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-ns-h2700', name: 'SH6591H4DB-NS（高2700mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-s-h2525', name: 'SH6591H4DB-S（高2525mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-s-h2740', name: 'SH6591H4DB-S（高2740mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-s-h2480', name: 'SH6591H4DB-S（高2480mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6591h4db-s-h2700', name: 'SH6591H4DB-S（高2700mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601a4db-h2372', name: 'SH6601A4DB（高2372mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601a4db-h2577', name: 'SH6601A4DB（高2577mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601a4db-n-h2372', name: 'SH6601A4DB-N（高2372mm变体）', kind: 'motorhome-b' },
+  { id: 'sh6601a4db-n-h2577', name: 'SH6601A4DB-N（高2577mm变体）', kind: 'motorhome-b' },
 ];
 
 export function entryForModel(
