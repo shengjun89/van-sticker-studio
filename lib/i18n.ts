@@ -234,7 +234,7 @@ const en = {
     'Film lifespan is about 2–3 years (estimate) and shortens with sun exposure; versus paint or a full color change it protects value better — niche colors keep about 52% after three years vs 68.5% for white (media-reported figures).',
   'bodylab.title': 'Parametric body lab',
   'bodylab.subtitle':
-    'All vehicle kinds: type, wheelbase, roof and dimensions drive a schematic body.',
+    'Registry-gated panel: only registered models are selectable; unregistered models are greyed out. Dimensions follow announcement figures.',
   'bodylab.kind': 'Vehicle type',
   'bodylab.kindMotorhome': 'Motorhome',
   'bodylab.kindTowable': 'Towable',
@@ -262,7 +262,18 @@ const en = {
   'bodylab.exMicroC': 'Wuling / Changan micro-truck',
   'bodylab.exOffroad': 'Tank 300 / 500 / BJ40 / Wrangler',
   'bodylab.kindNote':
-    'Switching type restores that type\u2019s defaults. Ranges are prototype envelopes, not announcement figures.',
+    'Type follows the selected model. Only registered models are selectable; the rest are pending.',
+  'bodylab.model': 'Chassis model',
+  'bodylab.modelDemo':
+    'Demo view (prototype placeholder, not an announcement figure)',
+  'bodylab.modelPending': 'Pending registration',
+  'bodylab.modelRegistered': 'Registered',
+  'bodylab.registryStatus':
+    'Registry: {complete} complete model(s), {partial} partial row(s). V80 passenger variants still pending.',
+  'bodylab.demoNote':
+    'Demo view: the schematic dimensions are prototype placeholders, not announcement figures. Select a registered model to configure.',
+  'bodylab.registeredNote':
+    'Core dimensions are this row\u2019s announcement figures (fixed); roof and wheelbase class are schematic defaults \u2014 other variants need their own registry rows.',
   'bodylab.trailerLength': 'Body length (mm)',
   'bodylab.hitchAxle': 'Hitch-to-axle (mm)',
   'bodylab.cYellowNote':
@@ -577,7 +588,7 @@ const zh: Record<StringKey, string> = {
   'reversibility.sub':
     '膜材寿命预期约 2–3 年（估算），暴晒会缩短；相比喷漆/全车改色更保值——小众色三年保值率约 52% vs 白色 68.5%（媒体口径）。',
   'bodylab.title': '参数化车体实验室',
-  'bodylab.subtitle': '全车型参数面板：车型、轴距、车顶与尺寸驱动示意车体。',
+  'bodylab.subtitle': '入库制面板：仅已入库车型可选，未入库车型置灰；尺寸以公告值为准。',
   'bodylab.kind': '车型类别',
   'bodylab.kindMotorhome': '自行式',
   'bodylab.kindTowable': '拖挂',
@@ -604,7 +615,17 @@ const zh: Record<StringKey, string> = {
   'bodylab.exCamper': '轿车 / SUV / 微面床车化',
   'bodylab.exMicroC': '五菱 / 长安微卡',
   'bodylab.exOffroad': '坦克 300 / 500 / BJ40 / 牧马人',
-  'bodylab.kindNote': '切换车型将恢复该车型默认值；各范围为原型包线，非公告值。',
+  'bodylab.kindNote': '车型类别跟随所选车型；仅已入库车型可选，其余为待入库。',
+  'bodylab.model': '底盘车型',
+  'bodylab.modelDemo': '演示视图（原型占位，非公告值）',
+  'bodylab.modelPending': '待入库',
+  'bodylab.modelRegistered': '已入库',
+  'bodylab.registryStatus':
+    '公告库：已入库完整车型 {complete} 款，部分字段 {partial} 行；V80 客车系各变体待补。',
+  'bodylab.demoNote':
+    '当前为演示视图：示意车体尺寸为原型占位，非公告值；请选择已入库车型后配置。',
+  'bodylab.registeredNote':
+    '核心尺寸为该行公告值（不可调）；车顶与轴距级别为示意默认值，换变体需入库对应行。',
   'bodylab.trailerLength': '厢体长（毫米）',
   'bodylab.hitchAxle': '牵引点到轴心（毫米）',
   'bodylab.cYellowNote': '黄牌车，蓝牌线不适用。',

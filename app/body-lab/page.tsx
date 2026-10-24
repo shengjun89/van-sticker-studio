@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import BodyConfigPanel from '@/components/studio/BodyConfigPanel';
+import { configForRegisteredModel } from '@/lib/announcement-db-data';
 import { t, type Lang } from '@/lib/i18n';
 import {
   DEFAULT_BODY_CONFIG,
@@ -24,6 +25,24 @@ import {
 export default function BodyLabPage() {
   const [lang, setLang] = useState<Lang>('zh');
   const [config, setConfig] = useState<BodyConfig>(DEFAULT_BODY_CONFIG);
+  /**
+   * Slice 5 registry gate: null is the demo view (prototype defaults,
+   * not configurable); a registered model id drives the config from
+   * its announcement row.
+   */
+  const [registeredModelId, setRegisteredModelId] = useState<string | null>(
+    null,
+  );
+
+  const handleSelectModel = (modelId: string | null) => {
+    setRegisteredModelId(modelId);
+    if (modelId === null) {
+      setConfig({ ...DEFAULT_BODY_CONFIG });
+      return;
+    }
+    const next = configForRegisteredModel(modelId);
+    if (next !== null) setConfig(next);
+  };
   const [popKey, setPopKey] = useState(0);
   const host = useRef<HTMLDivElement>(null);
   const rafRef = useRef(0);
@@ -203,6 +222,8 @@ export default function BodyLabPage() {
             onChange={setConfig}
             popKey={popKey}
             onRelease={handleRelease}
+            registeredModelId={registeredModelId}
+            onSelectModel={handleSelectModel}
           />
         </div>
         <div

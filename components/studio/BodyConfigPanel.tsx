@@ -14,6 +14,12 @@ import type {
   VehicleKind,
   WheelbaseClass,
 } from '@/lib/parametric-body';
+import { MODEL_CATALOG } from '@/lib/announcement-db';
+import {
+  configForRegisteredModel,
+  isModelSelectable,
+  registryStatus,
+} from '@/lib/announcement-db-data';
 import {
   ACCESSORY_META,
   DEFAULT_BODY_CONFIG,
@@ -34,12 +40,11 @@ import {
   WHEELBASE_PRESETS_MM,
   accessoryPositionRange,
   clampAccessoryPositions,
-  clampToLegal,
-  constraintsAllowBuild,
   defaultAccessoryPosition,
   isPopUpRoof,
   isTowableKind,
   openHeightMm,
+  repairAttachments,
   repairSlideOuts,
   resolveSlideOutCenter,
 } from '@/lib/parametric-body';
@@ -162,6 +167,12 @@ const EXAMPLE_KEY: Record<VehicleKind, StringKey> = {
   offroad: 'bodylab.exOffroad',
 };
 
+const KIND_GROUPS: { label: StringKey; kinds: readonly VehicleKind[] }[] = [
+  { label: 'bodylab.kindMotorhome', kinds: MOTORHOME_KINDS },
+  { label: 'bodylab.kindTowable', kinds: TOWABLE_KINDS },
+  { label: 'bodylab.kindOther', kinds: OTHER_KINDS },
+];
+
 const LEVEL_ICON: Record<ConstraintLevel, typeof CheckCircle2> = {
   pass: CheckCircle2,
   warn: AlertTriangle,
@@ -177,6 +188,14 @@ interface Props {
   popKey: number;
   /** Fired when any slider drag ends (pointer or keyboard release). */
   onRelease: () => void;
+  /**
+   * Slice 5 registry gate: the selected registered model id, or null
+   * for the demo view. Only registered models are selectable; the
+   * panel's core dimensions are fixed (demo: prototype defaults,
+   * registered: announcement values) and never user-adjustable.
+   */
+  registeredModelId: string | null;
+  onSelectModel: (modelId: string | null) => void;
 }
 
 /**
@@ -200,6 +219,12 @@ interface Props {
  *   length re-snaps slide-out centers the same way (dropping one only
  *   when no placement fits); roof-fixture clashes are flagged, not
  *   snapped, and the one-tap button repairs them.
+ * - Slice 5 (registry gate): the model dropdown is the only selector.
+ *   Unregistered models are disabled with a pending label; the kind
+ *   buttons follow the selected model and cannot switch kinds. Core
+ *   dimensions are never user-adjustable: demo mode shows prototype
+ *   defaults, registered mode shows fixed announcement values. The
+ *   fix-legal button in registered mode repairs attachments only.
  */
 export default function BodyConfigPanel({
   lang,
@@ -208,6 +233,8 @@ export default function BodyConfigPanel({
   onChange,
   popKey,
   onRelease,
+  registeredModelId,
+  onSelectModel,
 }: Props) {
   const env = VEHICLE_ENVELOPES[config.vehicleKind];
   const towable = isTowableKind(config.vehicleKind);
@@ -325,7 +352,34 @@ export default function BodyConfigPanel({
   const wheelbaseMax = towable
     ? TRAILER_HITCH_MM + config.lengthMm
     : Math.min(env.wheelbaseMaxMm, config.lengthMm - MIN_TOTAL_OVERHANG_MM);
-  const hasFail = !constraintsAllowBuild(results);
+  const registered = registeredModelId !== null;
+  const status = registryStatus();
+  /**
+   * Core dimensions are fixed in registered mode (announcement
+   * values) and shown as prototype defaults in demo mode; either way
+   * the core fieldset below is disabled, so no slider can move them.
+   * The ranges themselves read the registry values when registered.
+   */
+  const coreWheelbase = registered
+    ? { min: config.wheelbaseMm, max: config.wheelbaseMm }
+    : { min: wheelbaseMin, max: wheelbaseMax };
+  const coreLength = registered
+    ? { min: config.lengthMm, max: config.lengthMm }
+    : { min: env.lengthMinMm, max: env.lengthMaxMm };
+  const coreWidth = registered
+    ? { min: config.widthMm, max: config.widthMm }
+    : { min: env.widthMinMm, max: env.widthMaxMm };
+  const coreHeight = registered
+    ? { min: config.heightMm, max: config.heightMm }
+    : { min: env.heightMinMm, max: env.heightMaxMm };
+  /** Only attachment fails get a fix button in registered mode:
+   * announcement dimensions must never be "repaired" away. */
+  const attachmentFail = results.some(
+    (result) =>
+      result.level === 'fail' &&
+      (result.code.startsWith('slideout-') ||
+        result.code === 'roof-popup-clash'),
+  );
 
   return (
     <article className="insight-card" aria-label={t(lang, 'bodylab.title')}>
@@ -336,6 +390,77 @@ export default function BodyConfigPanel({
         {t(lang, 'bodylab.subtitle')}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <section>
+          <p style={{ fontSize: 13, margin: '0 0 6px' }}>
+            {t(lang, 'bodylab.model')}
+          </p>
+          <select
+            aria-label={t(lang, 'bodylab.model')}
+            value={registeredModelId ?? ''}
+            onChange={(event) => {
+              const value = event.target.value;
+              onSelectModel(value === '' ? null : value);
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 10,
+              border: '1px solid #c9bba6',
+              background: 'transparent',
+              fontSize: 13,
+            }}
+          >
+            <option value="">{t(lang, 'bodylab.modelDemo')}</option>
+            {KIND_GROUPS.map((group) => {
+              const models = MODEL_CATALOG.filter((model) =>
+                group.kinds.includes(model.kind),
+              );
+              if (models.length === 0) return null;
+              return (
+                <optgroup
+                  key={group.label}
+                  label={t(lang, group.label)}
+                >
+                  {models.map((model) => {
+                    const selectable = isModelSelectable(model.id);
+                    return (
+                      <option
+                        key={model.id}
+                        value={model.id}
+                        disabled={!selectable}
+                      >
+                        {model.name} · {t(lang, KIND_KEY[model.kind])} ·{' '}
+                        {t(
+                          lang,
+                          selectable
+                            ? 'bodylab.modelRegistered'
+                            : 'bodylab.modelPending',
+                        )}
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              );
+            })}
+          </select>
+          <p style={{ fontSize: 12, margin: '6px 0 0', opacity: 0.75 }}>
+            {t(lang, 'bodylab.registryStatus', {
+              complete: status.complete,
+              partial: status.partial,
+            })}
+          </p>
+          <p style={{ fontSize: 12, margin: '6px 0 0', opacity: 0.75 }}>
+            {t(
+              lang,
+              registered ? 'bodylab.registeredNote' : 'bodylab.demoNote',
+            )}
+          </p>
+        </section>
+        <fieldset
+          disabled
+          aria-label={t(lang, 'bodylab.kind')}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
         <section>
           <p style={{ fontSize: 13, margin: '0 0 6px' }}>
             {t(lang, 'bodylab.kind')}
@@ -402,8 +527,8 @@ export default function BodyConfigPanel({
               : t(lang, 'bodylab.wheelbaseMm')
           }
           value={config.wheelbaseMm}
-          min={wheelbaseMin}
-          max={wheelbaseMax}
+          min={coreWheelbase.min}
+          max={coreWheelbase.max}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -415,8 +540,8 @@ export default function BodyConfigPanel({
             towable ? t(lang, 'bodylab.trailerLength') : t(lang, 'bodylab.length')
           }
           value={config.lengthMm}
-          min={env.lengthMinMm}
-          max={env.lengthMaxMm}
+          min={coreLength.min}
+          max={coreLength.max}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -426,8 +551,8 @@ export default function BodyConfigPanel({
         <Slider
           label={t(lang, 'bodylab.width')}
           value={config.widthMm}
-          min={env.widthMinMm}
-          max={env.widthMaxMm}
+          min={coreWidth.min}
+          max={coreWidth.max}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -437,8 +562,8 @@ export default function BodyConfigPanel({
         <Slider
           label={t(lang, 'bodylab.height')}
           value={config.heightMm}
-          min={env.heightMinMm}
-          max={env.heightMaxMm}
+          min={coreHeight.min}
+          max={coreHeight.max}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -458,6 +583,12 @@ export default function BodyConfigPanel({
             onPick={setRoof}
           />
         </section>
+        </fieldset>
+        <fieldset
+          disabled={registeredModelId === null}
+          aria-label={t(lang, 'bodylab.travel')}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
         {popUp && (
           <>
             <Slider
@@ -496,6 +627,12 @@ export default function BodyConfigPanel({
             onPick={(slopedAngleDeg) => set({ slopedAngleDeg })}
           />
         )}
+        </fieldset>
+        <fieldset
+          disabled
+          aria-label={t(lang, 'bodylab.mass')}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
         <section>
           <p style={{ fontSize: 13, margin: '0 0 6px' }}>
             {t(lang, 'bodylab.mass')}
@@ -529,6 +666,12 @@ export default function BodyConfigPanel({
             </div>
           )}
         </section>
+        </fieldset>
+        <fieldset
+          disabled={registeredModelId === null}
+          aria-label={t(lang, 'bodylab.slideOuts')}
+          style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        >
         <section>
           <p style={{ fontSize: 13, margin: '0 0 6px' }}>
             {t(lang, 'bodylab.slideOuts')} ({config.slideOuts.length}/
@@ -735,6 +878,7 @@ export default function BodyConfigPanel({
             </div>
           ))}
         </section>
+        </fieldset>
         <p style={{ fontSize: 12, margin: 0, opacity: 0.75 }}>
           {t(lang, 'bodylab.protoNote')}
         </p>
@@ -777,10 +921,10 @@ export default function BodyConfigPanel({
           </ul>
         </section>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {hasFail && (
+          {registered && attachmentFail && (
             <button
               type="button"
-              onClick={() => onChange(clampToLegal(config))}
+              onClick={() => onChange(repairAttachments(config))}
               style={{
                 padding: '8px 14px',
                 borderRadius: 999,
@@ -796,7 +940,15 @@ export default function BodyConfigPanel({
           )}
           <button
             type="button"
-            onClick={() => onChange({ ...DEFAULT_BODY_CONFIG })}
+            onClick={() =>
+              onChange(
+                registeredModelId !== null
+                  ? (configForRegisteredModel(registeredModelId) ?? {
+                      ...DEFAULT_BODY_CONFIG,
+                    })
+                  : { ...DEFAULT_BODY_CONFIG },
+              )
+            }
             style={{
               padding: '8px 14px',
               borderRadius: 999,
@@ -876,7 +1028,7 @@ function Slider({
   onRelease: () => void;
   onPick: (value: number) => void;
 }) {
-  const safeMax = Math.max(max, min + step);
+  const safeMax = min === max ? max : Math.max(max, min + step);
   const safeValue = Math.min(Math.max(value, min), safeMax);
   return (
     <section>

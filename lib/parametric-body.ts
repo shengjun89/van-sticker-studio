@@ -16,6 +16,14 @@
  * Announcement database, interior panel and regional limits are the
  * scheme doc's pending section 7 items and are NOT built here.
  *
+ * Slice 5 scope: the registry gate (入库制, scheme doc section 5 as
+ * confirmed 2026-10-24). Model selection is driven by
+ * lib/announcement-db.json; only rows with every required field
+ * verified are selectable, and their core dimensions are fixed to
+ * the registry values. The per-kind envelopes below survive only as
+ * the demo view's prototype defaults, never as a way to configure an
+ * unregistered model.
+ *
  * PROTOTYPE ENVELOPES, NOT ANNOUNCEMENT FIGURES: the per-kind ranges
  * below are plausible market/regulation envelopes (road limits
  * width 2550 mm and height 4000 mm; blue-plate lines 6000 mm /
@@ -1052,4 +1060,20 @@ export function clampToLegal(config: BodyConfig): BodyConfig {
   next.accessories = clampAccessoryPositions(next);
   next.roofFixtures = repairRoofFixtures(next);
   return next;
+}
+
+/**
+ * Slice 5: repair only user additions (slide-outs, accessories, roof
+ * fixtures) without touching body dimensions or mass. Registered
+ * models use this for the fix-legal button: announcement dimensions
+ * must never be "repaired" away, and a blue-plate over-length on a
+ * registered model is informative, not something to clamp.
+ */
+export function repairAttachments(config: BodyConfig): BodyConfig {
+  return {
+    ...config,
+    slideOuts: repairSlideOuts(config),
+    accessories: clampAccessoryPositions(config),
+    roofFixtures: repairRoofFixtures(config),
+  };
 }
