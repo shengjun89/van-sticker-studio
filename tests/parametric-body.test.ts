@@ -2,12 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_BODY_CONFIG,
+  KIND_DEFAULTS,
   ROOF_CLOSED_HEIGHT_MM,
+  TRAILER_HITCH_MM,
+  VEHICLE_ENVELOPES,
   checkBodyConstraints,
   clampToLegal,
   constraintsAllowBuild,
+  isTowableKind,
   openHeightMm,
   type BodyConfig,
+  type VehicleKind,
 } from '../lib/parametric-body.ts';
 
 const base: BodyConfig = { ...DEFAULT_BODY_CONFIG };
@@ -106,4 +111,67 @@ void test('width limit is 2550 mm and build is blocked by any fail', () => {
     constraintsAllowBuild(checkBodyConstraints({ ...base, lengthMm: 6100 })),
     false,
   );
+});
+
+void test('every kind default sits inside its envelope', () => {
+  for (const kind of Object.keys(KIND_DEFAULTS) as VehicleKind[]) {
+    const def = KIND_DEFAULTS[kind];
+    const env = VEHICLE_ENVELOPES[kind];
+    assert.ok(
+      def.lengthMm >= env.lengthMinMm && def.lengthMm <= env.lengthMaxMm,
+      `${kind} length`,
+    );
+    assert.ok(
+      def.widthMm >= env.widthMinMm && def.widthMm <= env.widthMaxMm,
+      `${kind} width`,
+    );
+    assert.ok(
+      def.heightMm >= env.heightMinMm && def.heightMm <= env.heightMaxMm,
+      `${kind} height`,
+    );
+    if (isTowableKind(kind)) {
+      assert.ok(
+        def.wheelbaseMm >= 800 &&
+          def.wheelbaseMm <= TRAILER_HITCH_MM + def.lengthMm,
+        `${kind} hitch-to-axle`,
+      );
+    } else {
+      assert.ok(
+        def.wheelbaseMm >= env.wheelbaseMinMm &&
+          def.wheelbaseMm <= env.wheelbaseMaxMm &&
+          def.wheelbaseMm <= def.lengthMm - 800,
+        `${kind} wheelbase`,
+      );
+    }
+  }
+});
+
+void test('every envelope respects the road limits', () => {
+  for (const kind of Object.keys(VEHICLE_ENVELOPES) as VehicleKind[]) {
+    const env = VEHICLE_ENVELOPES[kind];
+    assert.ok(env.widthMaxMm <= 2550, `${kind} width cap`);
+    assert.ok(env.heightMaxMm <= 4000, `${kind} height cap`);
+    assert.ok(env.lengthMinMm < env.lengthMaxMm, `${kind} length range`);
+  }
+});
+
+void test('blue-plate lines skip A-type buses and towables', () => {
+  const bus = KIND_DEFAULTS['motorhome-a'];
+  assert.equal(code(bus, 'yellow-note')?.level, 'warn');
+  assert.equal(code(bus, 'blue-length-over'), undefined);
+  assert.equal(constraintsAllowBuild(checkBodyConstraints(bus)), true);
+  const trailer = KIND_DEFAULTS['towable-b'];
+  assert.equal(code(trailer, 'towable-note')?.level, 'warn');
+  assert.equal(code(trailer, 'blue-length-over'), undefined);
+  assert.equal(code(trailer, 'wheelbase-ok'), undefined);
+  assert.equal(constraintsAllowBuild(checkBodyConstraints(trailer)), true);
+});
+
+void test('clampToLegal keeps yellow-plate and towable lengths', () => {
+  const bus = { ...KIND_DEFAULTS['motorhome-a'], widthMm: 2600 };
+  const fixedBus = clampToLegal(bus);
+  assert.equal(fixedBus.lengthMm, 9000);
+  assert.equal(fixedBus.widthMm, 2550);
+  const trailer = { ...KIND_DEFAULTS['towable-a'], lengthMm: 8000 };
+  assert.equal(clampToLegal(trailer).lengthMm, 8000);
 });

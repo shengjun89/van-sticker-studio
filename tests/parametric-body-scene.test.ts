@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { DEFAULT_BODY_CONFIG } from '../lib/parametric-body.ts';
+import {
+  DEFAULT_BODY_CONFIG,
+  KIND_DEFAULTS,
+  type VehicleKind,
+} from '../lib/parametric-body.ts';
 import {
   BOUNCE_DURATION_MS,
   bounceScale,
@@ -29,6 +33,41 @@ void test('schematic body spans the configured length and height', () => {
   assert.ok(Math.abs(size.x - 5.84) < 0.01, `length ${size.x}`);
   assert.ok(Math.abs(size.y - 3.13) < 0.02, `height ${size.y}`);
   assert.ok(group.children.length > 10);
+});
+
+void test('schematic body builds for every vehicle kind', () => {
+  for (const kind of Object.keys(KIND_DEFAULTS) as VehicleKind[]) {
+    const group = buildParametricBody(KIND_DEFAULTS[kind]);
+    assert.ok(group.children.length > 0, kind);
+  }
+});
+
+void test('bus, C-type and pickup bodies span their configured length', () => {
+  for (const kind of ['motorhome-a', 'motorhome-c', 'motorhome-t'] as const) {
+    const config = KIND_DEFAULTS[kind];
+    const group = buildParametricBody(config);
+    group.updateMatrixWorld(true);
+    const size = new THREE.Box3()
+      .setFromObject(group)
+      .getSize(new THREE.Vector3());
+    assert.ok(
+      Math.abs(size.x - config.lengthMm / 1000) < 0.01,
+      `${kind} length ${size.x}`,
+    );
+  }
+});
+
+void test('trailer body spans body length plus the hitch bar', () => {
+  const config = KIND_DEFAULTS['towable-b'];
+  const group = buildParametricBody(config);
+  group.updateMatrixWorld(true);
+  const size = new THREE.Box3()
+    .setFromObject(group)
+    .getSize(new THREE.Vector3());
+  assert.ok(
+    Math.abs(size.x - (config.lengthMm + 1200) / 1000) < 0.05,
+    `trailer length ${size.x}`,
+  );
 });
 
 void test('schematic body builds for every roof type, open and closed', () => {

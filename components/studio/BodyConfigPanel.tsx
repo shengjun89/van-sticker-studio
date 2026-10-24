@@ -6,16 +6,24 @@ import type {
   ConstraintLevel,
   ConstraintResult,
   RoofType,
+  VehicleKind,
   WheelbaseClass,
 } from '@/lib/parametric-body';
 import {
   DEFAULT_BODY_CONFIG,
+  KIND_DEFAULTS,
   MIN_TOTAL_OVERHANG_MM,
+  MOTORHOME_KINDS,
+  OTHER_KINDS,
   ROOF_CLOSED_HEIGHT_MM,
+  TOWABLE_KINDS,
+  TRAILER_HITCH_MM,
+  VEHICLE_ENVELOPES,
   WHEELBASE_PRESETS_MM,
   clampToLegal,
   constraintsAllowBuild,
   isPopUpRoof,
+  isTowableKind,
   openHeightMm,
 } from '@/lib/parametric-body';
 
@@ -35,6 +43,8 @@ const CONSTRAINT_KEY: Record<string, StringKey> = {
   'angle-range': 'bodylab.cAngleRange',
   'width-ok': 'bodylab.cWidthOk',
   'width-over': 'bodylab.cWidthOver',
+  'yellow-note': 'bodylab.cYellowNote',
+  'towable-note': 'bodylab.cTowableNote',
 };
 
 const ROOF_KEY: Record<RoofType, StringKey> = {
@@ -51,6 +61,34 @@ const WHEELBASE_KEY: Record<WheelbaseClass, StringKey> = {
   short: 'bodylab.wheelbaseShort',
   medium: 'bodylab.wheelbaseMedium',
   long: 'bodylab.wheelbaseLong',
+};
+
+const KIND_KEY: Record<VehicleKind, StringKey> = {
+  'motorhome-a': 'bodylab.kindMotorhomeA',
+  'motorhome-b': 'bodylab.kindMotorhomeB',
+  'motorhome-c': 'bodylab.kindMotorhomeC',
+  'motorhome-t': 'bodylab.kindMotorhomeT',
+  'towable-a': 'bodylab.kindTowableA',
+  'towable-b': 'bodylab.kindTowableB',
+  'towable-c': 'bodylab.kindTowableC',
+  'towable-d': 'bodylab.kindTowableD',
+  camper: 'bodylab.kindCamper',
+  'micro-c': 'bodylab.kindMicroC',
+  offroad: 'bodylab.kindOffroad',
+};
+
+const EXAMPLE_KEY: Record<VehicleKind, StringKey> = {
+  'motorhome-a': 'bodylab.exMotorhomeA',
+  'motorhome-b': 'bodylab.exMotorhomeB',
+  'motorhome-c': 'bodylab.exMotorhomeC',
+  'motorhome-t': 'bodylab.exMotorhomeT',
+  'towable-a': 'bodylab.exTowableA',
+  'towable-b': 'bodylab.exTowableB',
+  'towable-c': 'bodylab.exTowableC',
+  'towable-d': 'bodylab.exTowableD',
+  camper: 'bodylab.exCamper',
+  'micro-c': 'bodylab.exMicroC',
+  offroad: 'bodylab.exOffroad',
 };
 
 const LEVEL_ICON: Record<ConstraintLevel, typeof CheckCircle2> = {
@@ -72,15 +110,18 @@ interface Props {
 
 /**
  * Interaction rules (mistake-proofing first, no typed input anywhere):
- * - Every number is a slider, so out-of-range values cannot be typed in.
+ * - Every number is a slider whose range comes from the selected kind's
+ *   envelope, so out-of-range values cannot be typed or dragged in.
  * - Travel (0-600) and angle (5-25) sliders end exactly at their legal
  *   limits, so those two rules can never fail from this panel.
  * - The wheelbase slider's max follows the length slider, and shrinking
  *   the length auto-clamps the wheelbase, so the wheelbase rule can
- *   never fail from this panel either.
- * - Length / width / mass sliders deliberately extend past the blue-plate
- *   lines so the warnings stay visible; any fail gets a one-tap
- *   "restore legal values" button.
+ *   never fail from this panel either (towables use hitch-to-axle with
+ *   its own dynamic cap instead).
+ * - Length / mass sliders for blue-plate kinds deliberately extend past
+ *   the blue-plate lines so the warnings stay visible; any fail gets a
+ *   one-tap "restore legal values" button.
+ * - Switching kind restores that kind's defaults wholesale.
  */
 export default function BodyConfigPanel({
   lang,
@@ -90,10 +131,20 @@ export default function BodyConfigPanel({
   popKey,
   onRelease,
 }: Props) {
+  const env = VEHICLE_ENVELOPES[config.vehicleKind];
+  const towable = isTowableKind(config.vehicleKind);
   const set = (patch: Partial<BodyConfig>) =>
     onChange({ ...config, ...patch });
+  const setKind = (vehicleKind: VehicleKind) =>
+    onChange({ ...KIND_DEFAULTS[vehicleKind] });
   const setRoof = (roofType: RoofType) =>
-    set({ roofType, heightMm: ROOF_CLOSED_HEIGHT_MM[roofType] });
+    set({
+      roofType,
+      heightMm: Math.min(
+        Math.max(ROOF_CLOSED_HEIGHT_MM[roofType], env.heightMinMm),
+        env.heightMaxMm,
+      ),
+    });
   const setWheelbase = (wheelbaseClass: WheelbaseClass) =>
     set({
       wheelbaseClass,
@@ -105,13 +156,21 @@ export default function BodyConfigPanel({
   const setLength = (lengthMm: number) =>
     set({
       lengthMm,
-      wheelbaseMm: Math.min(
-        config.wheelbaseMm,
-        lengthMm - MIN_TOTAL_OVERHANG_MM,
-      ),
+      wheelbaseMm: towable
+        ? Math.max(
+            800,
+            Math.min(config.wheelbaseMm, TRAILER_HITCH_MM + lengthMm),
+          )
+        : Math.min(
+            config.wheelbaseMm,
+            lengthMm - MIN_TOTAL_OVERHANG_MM,
+          ),
     });
   const popUp = isPopUpRoof(config.roofType);
-  const wheelbaseMax = config.lengthMm - MIN_TOTAL_OVERHANG_MM;
+  const wheelbaseMin = towable ? 800 : env.wheelbaseMinMm;
+  const wheelbaseMax = towable
+    ? TRAILER_HITCH_MM + config.lengthMm
+    : Math.min(env.wheelbaseMaxMm, config.lengthMm - MIN_TOTAL_OVERHANG_MM);
   const hasFail = !constraintsAllowBuild(results);
 
   return (
@@ -125,26 +184,71 @@ export default function BodyConfigPanel({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <section>
           <p style={{ fontSize: 13, margin: '0 0 6px' }}>
-            {t(lang, 'bodylab.chassis')}: {t(lang, 'bodylab.chassisV80')} ·{' '}
-            {t(lang, 'bodylab.bodyTypeB')}
+            {t(lang, 'bodylab.kind')}
           </p>
-        </section>
-        <section>
-          <p style={{ fontSize: 13, margin: '0 0 6px' }}>
-            {t(lang, 'bodylab.wheelbase')}
+          <p style={{ fontSize: 12, margin: '0 0 6px', opacity: 0.75 }}>
+            {t(lang, 'bodylab.kindMotorhome')}
           </p>
-          <Segmented<WheelbaseClass>
-            options={(Object.keys(WHEELBASE_KEY) as WheelbaseClass[]).map(
-              (key) => ({ value: key, label: t(lang, WHEELBASE_KEY[key]) }),
-            )}
-            active={config.wheelbaseClass}
-            onPick={setWheelbase}
+          <Segmented<VehicleKind>
+            options={MOTORHOME_KINDS.map((key) => ({
+              value: key,
+              label: t(lang, KIND_KEY[key]),
+            }))}
+            active={config.vehicleKind}
+            onPick={setKind}
           />
+          <p style={{ fontSize: 12, margin: '10px 0 6px', opacity: 0.75 }}>
+            {t(lang, 'bodylab.kindTowable')}
+          </p>
+          <Segmented<VehicleKind>
+            options={TOWABLE_KINDS.map((key) => ({
+              value: key,
+              label: t(lang, KIND_KEY[key]),
+            }))}
+            active={config.vehicleKind}
+            onPick={setKind}
+          />
+          <p style={{ fontSize: 12, margin: '10px 0 6px', opacity: 0.75 }}>
+            {t(lang, 'bodylab.kindOther')}
+          </p>
+          <Segmented<VehicleKind>
+            options={OTHER_KINDS.map((key) => ({
+              value: key,
+              label: t(lang, KIND_KEY[key]),
+            }))}
+            active={config.vehicleKind}
+            onPick={setKind}
+          />
+          <p style={{ fontSize: 13, margin: '10px 0 0' }}>
+            {t(lang, KIND_KEY[config.vehicleKind])} ·{' '}
+            {t(lang, EXAMPLE_KEY[config.vehicleKind])}
+          </p>
+          <p style={{ fontSize: 12, margin: '6px 0 0', opacity: 0.75 }}>
+            {t(lang, 'bodylab.kindNote')}
+          </p>
         </section>
+        {config.vehicleKind === 'motorhome-b' && (
+          <section>
+            <p style={{ fontSize: 13, margin: '0 0 6px' }}>
+              {t(lang, 'bodylab.wheelbase')}
+            </p>
+            <Segmented<WheelbaseClass>
+              options={(Object.keys(WHEELBASE_KEY) as WheelbaseClass[]).map(
+                (key) => ({ value: key, label: t(lang, WHEELBASE_KEY[key]) }),
+              )}
+              active={config.wheelbaseClass}
+              onPick={setWheelbase}
+            />
+          </section>
+        )}
         <Slider
-          label={t(lang, 'bodylab.wheelbaseMm')}
+          label={
+            towable
+              ? t(lang, 'bodylab.hitchAxle')
+              : t(lang, 'bodylab.wheelbaseMm')
+          }
           value={config.wheelbaseMm}
-          min={2500}
+          min={wheelbaseMin}
           max={wheelbaseMax}
           step={10}
           unit="mm"
@@ -153,10 +257,12 @@ export default function BodyConfigPanel({
           onPick={(wheelbaseMm) => set({ wheelbaseMm })}
         />
         <Slider
-          label={t(lang, 'bodylab.length')}
+          label={
+            towable ? t(lang, 'bodylab.trailerLength') : t(lang, 'bodylab.length')
+          }
           value={config.lengthMm}
-          min={4000}
-          max={6500}
+          min={env.lengthMinMm}
+          max={env.lengthMaxMm}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -166,8 +272,8 @@ export default function BodyConfigPanel({
         <Slider
           label={t(lang, 'bodylab.width')}
           value={config.widthMm}
-          min={1800}
-          max={2600}
+          min={env.widthMinMm}
+          max={env.widthMaxMm}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -177,8 +283,8 @@ export default function BodyConfigPanel({
         <Slider
           label={t(lang, 'bodylab.height')}
           value={config.heightMm}
-          min={2000}
-          max={3500}
+          min={env.heightMinMm}
+          max={env.heightMaxMm}
           step={10}
           unit="mm"
           popKey={popKey}
@@ -258,8 +364,8 @@ export default function BodyConfigPanel({
               <Slider
                 label=""
                 value={config.estimatedMassKg}
-                min={2500}
-                max={6000}
+                min={env.massMinKg}
+                max={env.massMaxKg}
                 step={50}
                 unit="kg"
                 popKey={popKey}

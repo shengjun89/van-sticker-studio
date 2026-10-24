@@ -1,18 +1,25 @@
 /**
- * Schematic procedural body for the body-lab page.
+ * Schematic procedural bodies for the body-lab page, one builder per
+ * body family (van / bus / C-type / pickup-camper / trailer).
  *
- * This is NOT the shipped V80 model (public/model/mxgarage-rv.glb) and must
- * never be presented as one: it is a boxy schematic whose only job is to
- * make parameter changes visible (wheelbase, roof type, dimensions). Real
- * dimensions and window layouts live in the shipped asset and the
- * announcement database, not here.
+ * These are NOT the shipped V80 model (public/model/mxgarage-rv.glb) and
+ * must never be presented as one: they are boxy schematics whose only
+ * job is to make parameter changes visible (kind, wheelbase, roof type,
+ * dimensions). Real dimensions and window layouts live in the shipped
+ * asset and the announcement database, not here.
  *
  * Conventions match the shipped asset: X is length, front is -X, Y is up,
  * ground is Y 0. Units are metres (config values are millimetres).
+ * Trailer kinds use wheelbaseMm as the hitch-to-axle distance and
+ * lengthMm as the body length (the hitch bar adds 1.2 m in front).
  */
 import * as THREE from 'three';
 import type { BodyConfig } from './parametric-body.ts';
-import { isPopUpRoof } from './parametric-body.ts';
+import {
+  TRAILER_HITCH_MM,
+  isPopUpRoof,
+  isTowableKind,
+} from './parametric-body.ts';
 
 const BODY_CREAM = 0xe9e2d2;
 const GLASS_DARK = 0x2b3438;
@@ -47,18 +54,101 @@ function wheel(radius: number, width: number, x: number, z: number): THREE.Mesh 
   return mesh;
 }
 
+function roofSlab(
+  len: number,
+  x: number,
+  y: number,
+  width: number,
+): THREE.Mesh {
+  return box(len, 0.08, width * 0.96, BODY_CREAM, x, y, 0);
+}
+
 /**
- * Build a schematic van body group from a BodyConfig. The caller owns the
- * group and should dispose it (traverse geometry/material dispose) on
- * rebuild/unmount.
+ * Simple roof for the non-van builders: a closed slab, or a canvas +
+ * raised slab when a pop-up roof is open. Van roofs keep their own
+ * sloped / split variants in buildVanBody.
  */
-export function buildParametricBody(config: BodyConfig): THREE.Group {
+function addSimpleRoof(
+  group: THREE.Group,
+  len: number,
+  centerX: number,
+  width: number,
+  height: number,
+  config: BodyConfig,
+): void {
+  const travel = config.popUpTravelMm / 1000;
+  const open = isPopUpRoof(config.roofType) && config.popUpOpen;
+  if (!open) {
+    group.add(roofSlab(len, centerX, height + 0.04, width));
+    return;
+  }
+  group.add(
+    box(len * 0.6, travel, width * 0.9, CANVAS_BEIGE, centerX, height + travel / 2, 0),
+    roofSlab(len, centerX, height + travel + 0.04, width),
+  );
+}
+
+function sideWindows(
+  group: THREE.Group,
+  entries: { x: number; y: number; len: number; h: number }[],
+  width: number,
+): void {
+  for (const side of [-1, 1]) {
+    const z = side * (width / 2 + 0.01);
+    for (const entry of entries) {
+      group.add(box(entry.len, entry.h, 0.02, GLASS_DARK, entry.x, entry.y, z));
+    }
+  }
+}
+
+function windshield(
+  group: THREE.Group,
+  bodyLen: number,
+  cabTop: number,
+  width: number,
+): void {
+  // Lean the top rearward (+X) like a real windshield rake. The rake
+  // shifts the plane's x-extent by half its height * sin(rake), so the
+  // center is compensated to keep the shield inside the body length.
+  const rake = 0.35;
+  const shieldHalfX = (0.85 / 2) * Math.sin(rake);
+  const shield = new THREE.Mesh(
+    new THREE.PlaneGeometry(width * 0.8, 0.85),
+    new THREE.MeshStandardMaterial({
+      color: GLASS_DARK,
+      roughness: 0.15,
+      metalness: 0.3,
+    }),
+  );
+  shield.position.set(-bodyLen / 2 + 0.06 + shieldHalfX, cabTop - 0.45, 0);
+  shield.rotation.y = -Math.PI / 2;
+  shield.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -rake);
+  group.add(shield);
+}
+
+function wheels(
+  group: THREE.Group,
+  positions: number[],
+  radius: number,
+  width: number,
+): void {
+  for (const x of positions) {
+    for (const z of [-(width / 2 - 0.08), width / 2 - 0.08]) {
+      group.add(wheel(radius, 0.26, x, z));
+    }
+  }
+}
+
+/** Van family: motorhome B, camper / bed car, off-road (floor/wheel tweaks). */
+function buildVanBody(
+  config: BodyConfig,
+  floorY: number,
+  wheelRadius: number,
+): THREE.Group {
   const group = new THREE.Group();
   const L = config.lengthMm / 1000;
   const W = config.widthMm / 1000;
   const H = config.heightMm / 1000;
-  const floorY = 0.55;
-  const wheelRadius = 0.36;
   const wheelbase = config.wheelbaseMm / 1000;
 
   // Rear body box (full height) and cab box (front, lower top).
@@ -68,51 +158,33 @@ export function buildParametricBody(config: BodyConfig): THREE.Group {
   const rear = box(rearLen, H - floorY, W, BODY_CREAM, L / 2 - rearLen / 2, (H + floorY) / 2, 0);
   const cab = box(cabLen, cabTop - floorY, W, BODY_CREAM, -L / 2 + cabLen / 2, (cabTop + floorY) / 2, 0);
   group.add(rear, cab);
-
-  // Windshield: tilted dark plane at the cab front.
-  const shield = new THREE.Mesh(
-    new THREE.PlaneGeometry(W * 0.8, 0.85),
-    new THREE.MeshStandardMaterial({
-      color: GLASS_DARK,
-      roughness: 0.15,
-      metalness: 0.3,
-    }),
+  windshield(group, L, cabTop, W);
+  sideWindows(
+    group,
+    [
+      { x: -L / 2 + cabLen * 0.55, y: cabTop - 0.4, len: 0.9, h: 0.55 },
+      { x: L * 0.12, y: H - 0.55, len: 1.4, h: 0.6 },
+    ],
+    W,
   );
-  // Lean the top rearward (+X) like a real windshield rake. The rake
-  // shifts the plane's x-extent by half its height * sin(rake), so the
-  // center is compensated to keep the shield inside the body length.
-  const rake = 0.35;
-  const shieldHalfX = (0.85 / 2) * Math.sin(rake);
-  shield.position.set(-L / 2 + 0.06 + shieldHalfX, cabTop - 0.45, 0);
-  shield.rotation.y = -Math.PI / 2;
-  shield.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -rake);
-  group.add(shield);
-
-  // Side windows: one cab window and one body window per side.
-  for (const side of [-1, 1]) {
-    const z = side * (W / 2 + 0.01);
-    const cabWindow = box(0.9, 0.55, 0.02, GLASS_DARK, -L / 2 + cabLen * 0.55, cabTop - 0.4, z);
-    const bodyWindow = box(1.4, 0.6, 0.02, GLASS_DARK, L * 0.12, H - 0.55, z);
-    group.add(cabWindow, bodyWindow);
-  }
 
   // Roof: closed slab, plus pop-up variants when open.
-  const roofSlab = (len: number, x: number, y: number): THREE.Mesh =>
-    box(len, 0.08, W * 0.96, BODY_CREAM, x, y, 0);
+  const slab = (len: number, x: number, y: number): THREE.Mesh =>
+    roofSlab(len, x, y, W);
   const travel = config.popUpTravelMm / 1000;
   const open = isPopUpRoof(config.roofType) && config.popUpOpen;
   if (!isPopUpRoof(config.roofType) || !open) {
-    group.add(roofSlab(L * 0.98, 0, H + 0.04));
+    group.add(slab(L * 0.98, 0, H + 0.04));
   } else if (config.roofType === 'pop-up') {
     const canvas = box(L * 0.6, travel, W * 0.9, CANVAS_BEIGE, L * 0.05, H + travel / 2, 0);
-    group.add(canvas, roofSlab(L * 0.98, 0, H + travel + 0.04));
+    group.add(canvas, slab(L * 0.98, 0, H + travel + 0.04));
   } else if (config.roofType === 'sloped-pop-up') {
     // Hinge at the front edge; the rear rises by the travel.
     const angle = (config.slopedAngleDeg * Math.PI) / 180;
     const pivot = new THREE.Group();
     pivot.position.set(-L * 0.49, H, 0);
-    const slab = roofSlab(L * 0.98, L * 0.49, 0.04);
-    pivot.add(slab);
+    const topSlab = slab(L * 0.98, L * 0.49, 0.04);
+    pivot.add(topSlab);
     pivot.rotation.z = angle;
     group.add(pivot);
     const canvas = box(L * 0.6, travel * 0.6, W * 0.9, CANVAS_BEIGE, L * 0.15, H + travel * 0.3, 0);
@@ -124,22 +196,167 @@ export function buildParametricBody(config: BodyConfig): THREE.Group {
     const canvas = box(frontLen, travel, W * 0.9, CANVAS_BEIGE, -L / 2 + frontLen / 2 + L * 0.05, H + travel / 2, 0);
     group.add(
       canvas,
-      roofSlab(frontLen, -L / 2 + frontLen / 2 + L * 0.05, H + travel + 0.04),
-      roofSlab(L * 0.98 - frontLen - L * 0.05, L / 2 - (L * 0.98 - frontLen - L * 0.05) / 2, H + 0.04),
+      slab(frontLen, -L / 2 + frontLen / 2 + L * 0.05, H + travel + 0.04),
+      slab(L * 0.98 - frontLen - L * 0.05, L / 2 - (L * 0.98 - frontLen - L * 0.05) / 2, H + 0.04),
     );
   }
 
-  // Wheels at +/- wheelbase/2, front is -X.
-  for (const x of [-wheelbase / 2, wheelbase / 2]) {
-    for (const z of [-(W / 2 - 0.08), W / 2 - 0.08]) {
-      group.add(wheel(wheelRadius, 0.26, x, z));
-    }
-  }
-
-  // Wheel-arch shadow boxes keep the schematic grounded visually.
+  wheels(group, [-wheelbase / 2, wheelbase / 2], wheelRadius, W);
   const skirt = box(L * 0.9, 0.12, W * 0.98, RUBBER_DARK, 0, floorY - 0.02, 0);
   group.add(skirt);
   return group;
+}
+
+/** Bus family: motorhome A — one tall box, flat front, no separate cab. */
+function buildBusBody(config: BodyConfig): THREE.Group {
+  const group = new THREE.Group();
+  const L = config.lengthMm / 1000;
+  const W = config.widthMm / 1000;
+  const H = config.heightMm / 1000;
+  const floorY = 0.55;
+  const wheelbase = config.wheelbaseMm / 1000;
+  group.add(box(L, H - floorY, W, BODY_CREAM, 0, (H + floorY) / 2, 0));
+  // Flat front windshield: a plane 2 mm proud of the front face, so the
+  // body still spans exactly its configured length.
+  const frontGlass = new THREE.Mesh(
+    new THREE.PlaneGeometry(W * 0.92, 0.8),
+    new THREE.MeshStandardMaterial({
+      color: GLASS_DARK,
+      roughness: 0.15,
+      metalness: 0.3,
+    }),
+  );
+  frontGlass.position.set(-L / 2 - 0.002, H - 0.9, 0);
+  frontGlass.rotation.y = -Math.PI / 2;
+  group.add(frontGlass);
+  sideWindows(
+    group,
+    [{ x: 0, y: H - 0.9, len: L * 0.8, h: 0.7 }],
+    W,
+  );
+  addSimpleRoof(group, L * 0.98, 0, W, H, config);
+  wheels(group, [-wheelbase / 2, wheelbase / 2], 0.45, W);
+  group.add(box(L * 0.9, 0.12, W * 0.98, RUBBER_DARK, 0, floorY - 0.02, 0));
+  return group;
+}
+
+/** C family: motorhome C and micro-truck C — cab + rear box + overcab bunk. */
+function buildCBody(config: BodyConfig): THREE.Group {
+  const group = new THREE.Group();
+  const L = config.lengthMm / 1000;
+  const W = config.widthMm / 1000;
+  const H = config.heightMm / 1000;
+  const floorY = 0.55;
+  const wheelbase = config.wheelbaseMm / 1000;
+  const bunkH = 0.75;
+  const cabTop = H - bunkH;
+  const cabLen = L * 0.32;
+  const rearLen = L - cabLen;
+  group.add(
+    box(rearLen, H - floorY, W, BODY_CREAM, L / 2 - rearLen / 2, (H + floorY) / 2, 0),
+    box(cabLen, cabTop - floorY, W, BODY_CREAM, -L / 2 + cabLen / 2, (cabTop + floorY) / 2, 0),
+    // Overcab bunk: same footprint as the cab, top at the overall height.
+    box(cabLen, bunkH, W, BODY_CREAM, -L / 2 + cabLen / 2, cabTop + bunkH / 2, 0),
+  );
+  windshield(group, L, cabTop, W);
+  sideWindows(
+    group,
+    [
+      { x: -L / 2 + cabLen * 0.55, y: cabTop - 0.4, len: 0.9, h: 0.55 },
+      { x: L * 0.12, y: H - 0.55, len: 1.4, h: 0.6 },
+    ],
+    W,
+  );
+  addSimpleRoof(group, L * 0.98, 0, W, H, config);
+  wheels(group, [-wheelbase / 2, wheelbase / 2], 0.36, W);
+  group.add(box(L * 0.9, 0.12, W * 0.98, RUBBER_DARK, 0, floorY - 0.02, 0));
+  return group;
+}
+
+/** T family: pickup cab + camper box riding in the bed. */
+function buildPickupBody(config: BodyConfig): THREE.Group {
+  const group = new THREE.Group();
+  const L = config.lengthMm / 1000;
+  const W = config.widthMm / 1000;
+  const H = config.heightMm / 1000;
+  const floorY = 0.55;
+  const wheelbase = config.wheelbaseMm / 1000;
+  const cabLen = L * 0.38;
+  const cabTop = H - 0.3;
+  const bedFloor = 0.85;
+  // Camper box runs from just behind the cab to the rear bumper, so the
+  // schematic spans exactly the configured length.
+  const camperLen = L - cabLen - 0.05;
+  const camperX = -L / 2 + cabLen + 0.05 + camperLen / 2;
+  group.add(
+    box(cabLen, cabTop - floorY, W, BODY_CREAM, -L / 2 + cabLen / 2, (cabTop + floorY) / 2, 0),
+    box(camperLen, H - bedFloor, W * 0.94, BODY_CREAM, camperX, (bedFloor + H) / 2, 0),
+  );
+  windshield(group, L, cabTop, W);
+  sideWindows(
+    group,
+    [
+      { x: -L / 2 + cabLen * 0.55, y: cabTop - 0.4, len: 0.9, h: 0.55 },
+      { x: camperX, y: H - 0.6, len: 1.0, h: 0.5 },
+    ],
+    W,
+  );
+  addSimpleRoof(group, camperLen, camperX, W * 0.94, H, config);
+  wheels(group, [-wheelbase / 2, wheelbase / 2], 0.38, W);
+  return group;
+}
+
+/** Trailer family: box + hitch bar, wheels placed by hitch-to-axle. */
+function buildTrailerBody(config: BodyConfig): THREE.Group {
+  const group = new THREE.Group();
+  const L = config.lengthMm / 1000;
+  const W = config.widthMm / 1000;
+  const H = config.heightMm / 1000;
+  const floorY = 0.6;
+  const hitch = TRAILER_HITCH_MM / 1000;
+  const axleX = -L / 2 - hitch + config.wheelbaseMm / 1000;
+  group.add(box(L, H - floorY, W, BODY_CREAM, 0, (H + floorY) / 2, 0));
+  group.add(
+    box(hitch, 0.12, 0.3, RUBBER_DARK, -L / 2 - hitch / 2, 0.55, 0),
+    // Hitch head: its front face is the frontmost point, so the total
+    // length is exactly body length + hitch length.
+    box(0.25, 0.15, 0.25, RUBBER_DARK, -L / 2 - hitch + 0.125, 0.55, 0),
+  );
+  sideWindows(
+    group,
+    [{ x: 0, y: H - 0.6, len: 1.2, h: 0.5 }],
+    W,
+  );
+  addSimpleRoof(group, L * 0.98, 0, W, H, config);
+  const axlePositions =
+    config.vehicleKind === 'towable-a' ? [axleX - 0.6, axleX + 0.6] : [axleX];
+  wheels(group, axlePositions, 0.36, W);
+  return group;
+}
+
+/**
+ * Build a schematic body group from a BodyConfig. The caller owns the
+ * group and should dispose it (traverse geometry/material dispose) on
+ * rebuild/unmount.
+ */
+export function buildParametricBody(config: BodyConfig): THREE.Group {
+  if (isTowableKind(config.vehicleKind)) return buildTrailerBody(config);
+  switch (config.vehicleKind) {
+    case 'motorhome-a':
+      return buildBusBody(config);
+    case 'motorhome-c':
+    case 'micro-c':
+      return buildCBody(config);
+    case 'motorhome-t':
+      return buildPickupBody(config);
+    case 'camper':
+      return buildVanBody(config, 0.48, 0.32);
+    case 'offroad':
+      return buildVanBody(config, 0.62, 0.42);
+    case 'motorhome-b':
+    default:
+      return buildVanBody(config, 0.55, 0.36);
+  }
 }
 
 /**
