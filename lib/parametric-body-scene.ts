@@ -11,8 +11,8 @@
  * ground is Y 0. Units are metres (config values are millimetres).
  */
 import * as THREE from 'three';
-import type { BodyConfig } from './parametric-body';
-import { isPopUpRoof } from './parametric-body';
+import type { BodyConfig } from './parametric-body.ts';
+import { isPopUpRoof } from './parametric-body.ts';
 
 const BODY_CREAM = 0xe9e2d2;
 const GLASS_DARK = 0x2b3438;
@@ -78,10 +78,14 @@ export function buildParametricBody(config: BodyConfig): THREE.Group {
       metalness: 0.3,
     }),
   );
-  shield.position.set(-L / 2 + 0.06, cabTop - 0.45, 0);
+  // Lean the top rearward (+X) like a real windshield rake. The rake
+  // shifts the plane's x-extent by half its height * sin(rake), so the
+  // center is compensated to keep the shield inside the body length.
+  const rake = 0.35;
+  const shieldHalfX = (0.85 / 2) * Math.sin(rake);
+  shield.position.set(-L / 2 + 0.06 + shieldHalfX, cabTop - 0.45, 0);
   shield.rotation.y = -Math.PI / 2;
-  // Lean the top rearward (+X) like a real windshield rake.
-  shield.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -0.35);
+  shield.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), -rake);
   group.add(shield);
 
   // Side windows: one cab window and one body window per side.
@@ -136,6 +140,30 @@ export function buildParametricBody(config: BodyConfig): THREE.Group {
   const skirt = box(L * 0.9, 0.12, W * 0.98, RUBBER_DARK, 0, floorY - 0.02, 0);
   group.add(skirt);
   return group;
+}
+
+/**
+ * "Duang" bounce: a damped squash-and-stretch applied to the schematic
+ * body for a short window after a slider drag ends. Pure function so the
+ * page loop stays thin and the curve stays unit-tested.
+ *
+ * At t = 0 the body is squashed (y 0.94, x/z 1.03); it then springs past
+ * its rest size once and settles. At or after BOUNCE_DURATION_MS the
+ * scale is exactly 1, so the loop can stop applying it.
+ */
+export const BOUNCE_DURATION_MS = 900;
+
+export function bounceScale(elapsedMs: number): {
+  x: number;
+  y: number;
+  z: number;
+} {
+  if (elapsedMs <= 0) return { x: 1.03, y: 0.94, z: 1.03 };
+  if (elapsedMs >= BOUNCE_DURATION_MS) return { x: 1, y: 1, z: 1 };
+  const t = elapsedMs / 1000;
+  const y = 1 - 0.06 * Math.exp(-3.5 * t) * Math.cos(16 * t);
+  const xz = 1 - (y - 1) * 0.5;
+  return { x: xz, y, z: xz };
 }
 
 /** Dispose every geometry/material in a built group. */

@@ -4,6 +4,7 @@ import {
   DEFAULT_BODY_CONFIG,
   ROOF_CLOSED_HEIGHT_MM,
   checkBodyConstraints,
+  clampToLegal,
   constraintsAllowBuild,
   openHeightMm,
   type BodyConfig,
@@ -61,6 +62,40 @@ void test('sloped angle range is 5-25 degrees and only applies to sloped roofs',
   assert.equal(code({ ...sloped, slopedAngleDeg: 25 }, 'angle-ok')?.level, 'pass');
   assert.equal(code({ ...sloped, slopedAngleDeg: 4 }, 'angle-range')?.level, 'fail');
   assert.equal(code({ ...sloped, slopedAngleDeg: 26 }, 'angle-range')?.level, 'fail');
+});
+
+void test('clampToLegal pulls every field back into range at once', () => {
+  const illegal: BodyConfig = {
+    ...base,
+    lengthMm: 6500,
+    widthMm: 2600,
+    wheelbaseMm: 5500,
+    popUpTravelMm: 900,
+    slopedAngleDeg: 40,
+    estimatedMassKg: 6000,
+  };
+  const fixed = clampToLegal(illegal);
+  assert.equal(fixed.lengthMm, 6000);
+  assert.equal(fixed.widthMm, 2550);
+  assert.equal(fixed.wheelbaseMm, 5200);
+  assert.equal(fixed.popUpTravelMm, 600);
+  assert.equal(fixed.slopedAngleDeg, 25);
+  assert.equal(fixed.estimatedMassKg, 4500);
+  assert.equal(constraintsAllowBuild(checkBodyConstraints(fixed)), true);
+});
+
+void test('clampToLegal trims travel for open height and keeps unknown mass', () => {
+  const open = {
+    ...base,
+    roofType: 'pop-up' as const,
+    heightMm: 3600,
+    popUpOpen: true,
+    popUpTravelMm: 600,
+    estimatedMassKg: null,
+  };
+  const fixed = clampToLegal(open);
+  assert.equal(fixed.popUpTravelMm, 400);
+  assert.equal(fixed.estimatedMassKg, null);
 });
 
 void test('width limit is 2550 mm and build is blocked by any fail', () => {

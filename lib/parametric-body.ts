@@ -196,3 +196,45 @@ export function checkBodyConstraints(config: BodyConfig): ConstraintResult[] {
 export function constraintsAllowBuild(results: ConstraintResult[]): boolean {
   return results.every((result) => result.level !== 'fail');
 }
+
+/**
+ * One-tap recovery for the panel's "restore legal values" button: clamp
+ * every field into its legal range. Mass stays unknown when it was
+ * unknown; open height is fixed by trimming travel (closed height itself
+ * never exceeds the road reference through the panel's sliders).
+ */
+export function clampToLegal(config: BodyConfig): BodyConfig {
+  const lengthMm = Math.min(config.lengthMm, BLUE_PLATE_MAX_LENGTH_MM);
+  const next: BodyConfig = {
+    ...config,
+    lengthMm,
+    widthMm: Math.min(config.widthMm, MAX_BODY_WIDTH_MM),
+    wheelbaseMm: Math.min(
+      config.wheelbaseMm,
+      lengthMm - MIN_TOTAL_OVERHANG_MM,
+    ),
+    popUpTravelMm: Math.max(
+      0,
+      Math.min(config.popUpTravelMm, POP_UP_TRAVEL_MAX_MM),
+    ),
+    slopedAngleDeg: Math.max(
+      SLOPED_ANGLE_MIN_DEG,
+      Math.min(config.slopedAngleDeg, SLOPED_ANGLE_MAX_DEG),
+    ),
+    estimatedMassKg:
+      config.estimatedMassKg === null
+        ? null
+        : Math.min(config.estimatedMassKg, BLUE_PLATE_MAX_MASS_KG),
+  };
+  if (
+    isPopUpRoof(next.roofType) &&
+    next.popUpOpen &&
+    next.heightMm + next.popUpTravelMm > ROAD_REFERENCE_MAX_HEIGHT_MM
+  ) {
+    next.popUpTravelMm = Math.max(
+      0,
+      ROAD_REFERENCE_MAX_HEIGHT_MM - next.heightMm,
+    );
+  }
+  return next;
+}

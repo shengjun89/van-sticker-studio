@@ -9,6 +9,8 @@ import {
   type BodyConfig,
 } from '@/lib/parametric-body';
 import {
+  BOUNCE_DURATION_MS,
+  bounceScale,
   buildParametricBody,
   disposeParametricBody,
 } from '@/lib/parametric-body-scene';
@@ -22,11 +24,20 @@ import {
 export default function BodyLabPage() {
   const [lang, setLang] = useState<Lang>('zh');
   const [config, setConfig] = useState<BodyConfig>(DEFAULT_BODY_CONFIG);
+  const [popKey, setPopKey] = useState(0);
   const host = useRef<HTMLDivElement>(null);
   const rafRef = useRef(0);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const bodyRef = useRef<THREE.Group | null>(null);
+  /** performance.now() timestamp of the last slider release; 0 = idle. */
+  const bounceRef = useRef(0);
   const view = useRef({ azimuth: 0.7, polar: 1.15, radius: 10 });
+
+  /** Slider drag ended: spring the body once and pop the value badge. */
+  const handleRelease = () => {
+    bounceRef.current = performance.now();
+    setPopKey((key) => key + 1);
+  };
 
   const results = useMemo(() => checkBodyConstraints(config), [config]);
 
@@ -67,6 +78,17 @@ export default function BodyLabPage() {
         target.z + radius * Math.sin(polar) * Math.cos(azimuth),
       );
       camera.lookAt(target);
+      const body = bodyRef.current;
+      if (body && bounceRef.current > 0) {
+        const elapsed = performance.now() - bounceRef.current;
+        if (elapsed >= BOUNCE_DURATION_MS) {
+          body.scale.set(1, 1, 1);
+          bounceRef.current = 0;
+        } else {
+          const s = bounceScale(elapsed);
+          body.scale.set(s.x, s.y, s.z);
+        }
+      }
       renderer.render(scene, camera);
     };
     const loop = () => {
@@ -179,6 +201,8 @@ export default function BodyLabPage() {
             config={config}
             results={results}
             onChange={setConfig}
+            popKey={popKey}
+            onRelease={handleRelease}
           />
         </div>
         <div

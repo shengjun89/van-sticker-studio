@@ -278,6 +278,10 @@ const en = {
   'bodylab.cWidthOver': 'Width over the 2550 mm limit.',
   'bodylab.note':
     'Schematic prototype: dimensions are placeholders, not real-vehicle measurements and not for production or cutting. The announcement database replaces them.',
+  'bodylab.fixLegal': 'Restore legal values',
+  'bodylab.resetDefaults': 'Reset to defaults',
+  'bodylab.massUnknown': 'Mass unknown',
+  'bodylab.popUpClosed': 'Roof closed',
   'bodylab.canvasAria': 'Parametric body preview',
   'bodylab.orbitHint': 'Drag to orbit · scroll to zoom',
   'bodylab.langZh': '中文',
@@ -537,6 +541,10 @@ const zh: Record<StringKey, string> = {
   'bodylab.cWidthOver': '车宽超过 2550 毫米限值。',
   'bodylab.note':
     '示意原型：尺寸为占位参数，不是实车净尺寸，不可用于生产或开料；公告数据库接入后替换。',
+  'bodylab.fixLegal': '恢复合法值',
+  'bodylab.resetDefaults': '恢复默认',
+  'bodylab.massUnknown': '质量未知',
+  'bodylab.popUpClosed': '升顶收起',
   'bodylab.canvasAria': '参数化车体预览',
   'bodylab.orbitHint': '拖拽旋转 · 滚轮缩放',
   'bodylab.langZh': '中文',
