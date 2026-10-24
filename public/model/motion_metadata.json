@@ -1672,7 +1672,7 @@
   "triangles": 317920,
   "bytes": 15744936,
   "wiperIntervalSeconds": 5,
-  "glbSha256": "337f9eb46725cfbfd1d2fe1fe756e3d51a1d36c1e3cbe2cfeb7a86e8d1719d13",
+  "glbSha256": "df4b144e410d3f2f7792e8ed931262622f83c3c8b897926d64ff42340d11a7cf",
   "calibratedWipersPreservedFromSha256": "9559fb30548a3ab464fbb628d91f4e3ed39510eadf5a2ebefde8610f2aecd2aa",
   "frontBadgeCorrection": {
     "mountingX": -2.8378328447705576,
@@ -1748,5 +1748,35 @@
     "wrapExcluded": true,
     "reference": "用户2026-10-07前灯黄色转向灯参考；恢复原上部与外缘光学腔，保留透明灯罩和分隔条",
     "material": "琥珀色光学面，向内侧银色反光碗过渡"
+  },
+  "grilleArcCorrection": {
+    "component": "RV_Static_Chrome top grille bar",
+    "componentVerts": 571,
+    "changedVertices": 210,
+    "baselineY": 0.9931,
+    "peakDeltaMeters": 0.0279,
+    "peakDeltaMm": 27.9,
+    "peakAtZ": -0.048,
+    "archSpanZ": [
+      -0.2,
+      0.1
+    ],
+    "oldBoundsY": [
+      0.9782,
+      1.0371
+    ],
+    "newAccessorMin": [
+      -2.8426320552825928,
+      0.12978370487689972,
+      -1.2305999994277954
+    ],
+    "newAccessorMax": [
+      2.979713201522827,
+      2.9478511810302734,
+      0.9549747109413147
+    ],
+    "sha256": "df4b144e410d3f2f7792e8ed931262622f83c3c8b897926d64ff42340d11a7cf",
+    "bytes": 15701336,
+    "method": "中心拱段整体下移拉平（按实测中心线拱高逐 z 插值下压，带宽不变、法线逆转置修正）；其余 GLB 字节不变，JSON 仅 POSITION accessor min/max 变化。"
   }
 }
