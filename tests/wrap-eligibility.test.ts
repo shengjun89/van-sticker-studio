@@ -76,7 +76,7 @@ void test('rear trim and moving panels remain excluded even when sharing a paint
   assert.ok(!result.has(falseStatic));
 });
 
-void test('actual V80 missing headlamp transition faces are eligible on both sides while rear rails remain untouched', async () => {
+void test('actual van missing headlamp transition faces are eligible on both sides while rear rails remain untouched', async () => {
   const bytes = fs.readFileSync('public/model/mxgarage-rv.glb');
   const loaded = await new GLTFLoader().parseAsync(
     bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),

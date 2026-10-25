@@ -949,6 +949,38 @@ a {
   font-size: 10px;
   color: #a0a6ac;
 }
+.fold-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0 0 12px;
+  margin: 0 0 12px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fold-toggle svg {
+  flex-shrink: 0;
+  color: #8c94a3;
+  transition: transform 0.2s;
+}
+.fold-toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.fold-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.fold-meta {
+  font-size: 10px;
+  color: #a0a6ac;
+  margin-left: auto;
+}
 .concept-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2378,4 +2410,21 @@ a {
 .lang-switch button.active {
   background: rgba(0, 0, 0, 0.14);
   font-weight: 600;
+}
+
+/* Body lab value pop: replays when the value badge remounts on slider release. */
+.bodylab-pop {
+  display: inline-block;
+  animation: bodylab-pop 0.45s ease-out;
+}
+@keyframes bodylab-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
 }

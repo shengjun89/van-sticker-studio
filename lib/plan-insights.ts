@@ -45,11 +45,11 @@ export const LABOR_COST_SHARE = 0.45;
 export const DEFAULT_DECAL_ASPECT = 3;
 
 /**
- * V80 周长图车身（motion_metadata：wrap.xMin=-2.85、xSpan=5.8、
+ * 厢式房车周长图车身（motion_metadata：wrap.xMin=-2.85、xSpan=5.8、
  * dimensionsMeters.width=2.22、wrap.zSpan=3.05）。
  * 仅作编辑器实时状态尚未回流时的兜底，实时路径优先用编辑器的 body。
  */
-export const V80_WRAP_BODY: WrapBody = {
+export const VAN_WRAP_BODY: WrapBody = {
   xMin: -2.85,
   length: 5.8,
   width: 2.22,

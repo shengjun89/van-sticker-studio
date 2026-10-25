@@ -1,6 +1,6 @@
 # MXGARAGE Wrap Studio
 
-A private, interactive decal studio for the existing MAXUS V80 Blender vehicle.
+A private, interactive decal studio for a campervan 3D model.
 
 ## Use
 
@@ -77,7 +77,7 @@ Browser acceptance covered selection → application, readable placement on both
 
 ## 中文摘要
 
-MXGARAGE Wrap Studio 是为上汽大通 V80 房车打造的交互式拉花工作台：写一句描述即可生成四款贴纸方案，并直接贴到可交互的 3D 车身上预览效果。界面默认英文，可一键切换中文。
+MXGARAGE Wrap Studio 是为厢式房车打造的交互式拉花工作台：写一句描述即可生成四款贴纸方案，并直接贴到可交互的 3D 车身上预览效果。界面默认英文，可一键切换中文。
 
 方案洞察（Plan insights）五项特性：覆盖率估算（对照 30% 合规线）、合规说明卡、价格估算（参考价，按全车改色膜锚点折算）、施工评估自检、可逆与保值说明（含媒体口径保值率数据）。
 

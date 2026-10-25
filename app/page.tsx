@@ -26,7 +26,7 @@ import VehicleScene, {
 } from '@/components/studio/VehicleScene';
 import PlanInsights from '@/components/studio/PlanInsights';
 import type { WrapEditState } from '@/lib/vehicle-wrap-editor';
-import { DEFAULT_DECAL_ASPECT, V80_WRAP_BODY } from '@/lib/plan-insights';
+import { DEFAULT_DECAL_ASPECT, VAN_WRAP_BODY } from '@/lib/plan-insights';
 import {
   SAMPLES,
   INSPIRATIONS,
@@ -55,8 +55,15 @@ const VIEW_KEYS: Record<string, StringKey> = {
   front: 'view.front',
   rear: 'view.rear',
 };
+// Quick preview entries (camera presets, environment switch, camp shortcut,
+// part dock) are hidden by default on the simplified homepage. Direct 3D
+// interaction — clicking the model to open doors and windows — is unaffected.
+const SHOW_QUICK_ENTRIES = false;
 const partName = (id: string, lang: Lang) =>
-  t(lang, PART_KEYS[id] ?? (id.startsWith('window') ? 'part.window' : 'part.wiper'));
+  t(
+    lang,
+    PART_KEYS[id] ?? (id.startsWith('window') ? 'part.window' : 'part.wiper'),
+  );
 export default function Home() {
   const [lang, setLang] = useState<Lang>('en');
   const [prompt, setPrompt] = useState('');
@@ -75,6 +82,8 @@ export default function Home() {
   const [environment, setEnvironment] = useState<'camp' | 'studio'>('studio');
   const [wipers, setWipers] = useState(true);
   const [showMore, setShowMore] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [conceptsOpen, setConceptsOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [sequence, setSequence] = useState(false);
   const [view, setView] = useState('hero');
@@ -132,10 +141,7 @@ export default function Home() {
     try {
       await vehicle.current.applySticker(sticker);
       if (version !== applyVersion.current)
-        throw new DOMException(
-          'Superseded by a newer action',
-          'AbortError',
-        );
+        throw new DOMException('Superseded by a newer action', 'AbortError');
       return { id: sticker.id, name: sticker.name, applied: true };
     } finally {
       if (version === applyVersion.current) setApplying(false);
@@ -192,12 +198,9 @@ export default function Home() {
       if (!response.ok) {
         const d = (await response.json()) as { code?: string; error?: string };
         if (d.code === 'AI_NOT_CONFIGURED') setConfigured(false);
-        throw Error(
-          d.error || t(langRef.current, 'error.generateFailedRetry'),
-        );
+        throw Error(d.error || t(langRef.current, 'error.generateFailedRetry'));
       }
-      if (!response.body)
-        throw Error(t(langRef.current, 'error.noStreamData'));
+      if (!response.body) throw Error(t(langRef.current, 'error.noStreamData'));
       received = await readStickerBatch(
         response.body,
         (event, ordered) => {
@@ -424,175 +427,204 @@ export default function Home() {
             <h1>{t(lang, 'page.heroTitle')}</h1>
             <p>{t(lang, 'page.heroSub')}</p>
           </div>
-          <label className="prompt-label" htmlFor="prompt">
-            {t(lang, 'page.promptLabel')} <Sparkles size={15} />
-          </label>
-          <div className="prompt-box">
-            <textarea
-              id="prompt"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (
-                  (e.metaKey || e.ctrlKey) &&
-                  e.key === 'Enter' &&
-                  !busy &&
-                  prompt.trim()
-                ) {
-                  e.preventDefault();
-                  void generate().catch(() => {});
-                }
-              }}
-              placeholder={t(lang, 'page.promptPlaceholder')}
-              maxLength={1000}
-              disabled={busy}
-            />
-            <span className="char-count">
-              {prompt.length} / 1000 <CornerDownLeft size={11} />
-            </span>
-          </div>
-          <div className="prompt-chips">
-            {INSPIRATIONS.map((item) => (
-              <button
-                key={item.id}
-                disabled={busy}
-                onClick={() => {
-                  setPrompt(inspirationText(item, lang));
-                  setError('');
-                }}
-              >
-                {inspirationLabel(item, lang)}
-                <MoveUpRight size={12} />
-              </button>
-            ))}
-          </div>
-          <button
-            className="generate-button"
-            disabled={busy || applying || !ready || !prompt.trim()}
-            onClick={() => void generate().catch(() => {})}
-          >
-            {busy ? (
-              <LoaderCircle className="spin" size={18} />
-            ) : (
-              <Sparkles size={18} />
-            )}
-            <span>
-              {busy ? t(lang, 'page.generating') : t(lang, 'page.generate')}
-            </span>
-            {busy ? (
-              <span className="generation-clock">{elapsed}s</span>
-            ) : (
-              <ArrowRight size={18} />
-            )}
-          </button>
-          {busy ? (
-            <output className="generation-progress">
-              <div className="progress-dots">
-                {[0, 1, 2, 3].map((i) => (
-                  <span
-                    key={i}
-                    className={
-                      slots[i] === 'done'
-                        ? 'done'
-                        : slots[i] === 'drawing'
-                          ? 'working'
-                          : ''
-                    }
-                    title={t(lang, 'page.slotTitle', {
-                      index: i + 1,
-                      status: t(
-                        lang,
-                        `slot.${slots[i] ?? 'waiting'}` as StringKey,
-                      ),
-                    })}
-                  >
-                    {slots[i] === 'done' ? <Check size={11} /> : i + 1}
+          <div className="fold-section">
+            <button
+              type="button"
+              className="fold-toggle"
+              aria-expanded={promptOpen}
+              onClick={() => setPromptOpen((v) => !v)}
+            >
+              <span className="fold-title">
+                {t(lang, 'page.promptSectionToggle')}
+              </span>
+              <ChevronDown size={15} />
+            </button>
+            {promptOpen && (
+              <>
+                <label className="prompt-label" htmlFor="prompt">
+                  {t(lang, 'page.promptLabel')} <Sparkles size={15} />
+                </label>
+                <div className="prompt-box">
+                  <textarea
+                    id="prompt"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (
+                        (e.metaKey || e.ctrlKey) &&
+                        e.key === 'Enter' &&
+                        !busy &&
+                        prompt.trim()
+                      ) {
+                        e.preventDefault();
+                        void generate().catch(() => {});
+                      }
+                    }}
+                    placeholder={t(lang, 'page.promptPlaceholder')}
+                    maxLength={1000}
+                    disabled={busy}
+                  />
+                  <span className="char-count">
+                    {prompt.length} / 1000 <CornerDownLeft size={11} />
                   </span>
-                ))}
-              </div>
-              <button onClick={() => generation.current?.abort()}>
-                {t(lang, 'page.stop')}
-              </button>
-            </output>
-          ) : (
-            <p className="ai-note">
-              <span className={`status-dot ${configured ? 'connected' : ''}`} />
-              {configured
-                ? t(lang, 'page.aiConnected')
-                : configured === false
-                  ? t(lang, 'page.aiSamples')
-                  : t(lang, 'page.aiConnecting')}
-            </p>
-          )}
-          {error && (
-            <div className="inline-error" role="alert">
-              <span>{error}</span>
-              <button
-                aria-label={t(lang, 'page.closeError')}
-                onClick={() => setError('')}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          )}
+                </div>
+                <div className="prompt-chips">
+                  {INSPIRATIONS.map((item) => (
+                    <button
+                      key={item.id}
+                      disabled={busy}
+                      onClick={() => {
+                        setPrompt(inspirationText(item, lang));
+                        setError('');
+                      }}
+                    >
+                      {inspirationLabel(item, lang)}
+                      <MoveUpRight size={12} />
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="generate-button"
+                  disabled={busy || applying || !ready || !prompt.trim()}
+                  onClick={() => void generate().catch(() => {})}
+                >
+                  {busy ? (
+                    <LoaderCircle className="spin" size={18} />
+                  ) : (
+                    <Sparkles size={18} />
+                  )}
+                  <span>
+                    {busy
+                      ? t(lang, 'page.generating')
+                      : t(lang, 'page.generate')}
+                  </span>
+                  {busy ? (
+                    <span className="generation-clock">{elapsed}s</span>
+                  ) : (
+                    <ArrowRight size={18} />
+                  )}
+                </button>
+                {busy ? (
+                  <output className="generation-progress">
+                    <div className="progress-dots">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span
+                          key={i}
+                          className={
+                            slots[i] === 'done'
+                              ? 'done'
+                              : slots[i] === 'drawing'
+                                ? 'working'
+                                : ''
+                          }
+                          title={t(lang, 'page.slotTitle', {
+                            index: i + 1,
+                            status: t(
+                              lang,
+                              `slot.${slots[i] ?? 'waiting'}` as StringKey,
+                            ),
+                          })}
+                        >
+                          {slots[i] === 'done' ? <Check size={11} /> : i + 1}
+                        </span>
+                      ))}
+                    </div>
+                    <button onClick={() => generation.current?.abort()}>
+                      {t(lang, 'page.stop')}
+                    </button>
+                  </output>
+                ) : (
+                  <p className="ai-note">
+                    <span
+                      className={`status-dot ${configured ? 'connected' : ''}`}
+                    />
+                    {configured
+                      ? t(lang, 'page.aiConnected')
+                      : configured === false
+                        ? t(lang, 'page.aiSamples')
+                        : t(lang, 'page.aiConnecting')}
+                  </p>
+                )}
+                {error && (
+                  <div className="inline-error" role="alert">
+                    <span>{error}</span>
+                    <button
+                      aria-label={t(lang, 'page.closeError')}
+                      onClick={() => setError('')}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
           <section
             className="concept-section"
             aria-label={t(lang, 'page.conceptsAria')}
           >
-            <div className="section-line">
-              <h2>
+            <button
+              type="button"
+              className="fold-toggle"
+              aria-expanded={conceptsOpen}
+              onClick={() => setConceptsOpen((v) => !v)}
+            >
+              <span className="fold-title">
                 {isSample
                   ? t(lang, 'page.trySamples')
                   : t(lang, 'page.yourDesigns')}
-              </h2>
-              <span>
+              </span>
+              <span className="fold-meta">
                 {isSample
                   ? t(lang, 'page.samplesMeta')
                   : t(lang, 'page.designsMeta', { count: options.length })}
               </span>
-            </div>
-            <div className="concept-grid">
-              {options.map((option, i) => (
-                <button
-                  className={`concept-card ${selected === option.id ? 'selected' : ''}`}
-                  key={option.id}
-                  onClick={() => chooseDesign(option)}
-                  disabled={busy || !ready}
-                  aria-pressed={selected === option.id}
-                  style={
-                    {
-                      '--concept-color': option.color,
-                      '--card-index': i,
-                    } as React.CSSProperties
-                  }
-                >
-                  <span className="concept-art">
-                    <Image
-                      unoptimized
-                      width={640}
-                      height={240}
-                      src={option.image}
-                      alt={t(lang, 'page.conceptAlt', {
-                        name: stickerName(option, lang),
-                      })}
-                      loading="eager"
-                    />
-                  </span>
-                  <span className="concept-info">
-                    <span>{stickerName(option, lang)}</span>
-                    <span className="selection-dot">
-                      {selected === option.id && <Check size={10} />}
+              <ChevronDown size={15} />
+            </button>
+            {conceptsOpen && (
+              <div className="concept-grid">
+                {options.map((option, i) => (
+                  <button
+                    className={`concept-card ${selected === option.id ? 'selected' : ''}`}
+                    key={option.id}
+                    onClick={() => chooseDesign(option)}
+                    disabled={busy || !ready}
+                    aria-pressed={selected === option.id}
+                    style={
+                      {
+                        '--concept-color': option.color,
+                        '--card-index': i,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <span className="concept-art">
+                      <Image
+                        unoptimized
+                        width={640}
+                        height={240}
+                        src={option.image}
+                        alt={t(lang, 'page.conceptAlt', {
+                          name: stickerName(option, lang),
+                        })}
+                        loading="eager"
+                      />
                     </span>
-                  </span>
-                  <span className="concept-subtitle">
-                    {option.subtitle}
-                    {applied?.id === option.id
-                      ? t(lang, 'page.appliedSuffix')
-                      : ''}
-                  </span>
-                </button>
-              ))}
-            </div>
+                    <span className="concept-info">
+                      <span>{stickerName(option, lang)}</span>
+                      <span className="selection-dot">
+                        {selected === option.id && <Check size={10} />}
+                      </span>
+                    </span>
+                    <span className="concept-subtitle">
+                      {option.subtitle}
+                      {applied?.id === option.id
+                        ? t(lang, 'page.appliedSuffix')
+                        : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
           <button
             className={`apply-button ${applied?.id === selected && selected ? 'is-applied' : ''}`}
@@ -650,7 +682,7 @@ export default function Home() {
                 ]
               }
               aspect={wrapState?.aspect ?? DEFAULT_DECAL_ASPECT}
-              body={wrapState?.body ?? V80_WRAP_BODY}
+              body={wrapState?.body ?? VAN_WRAP_BODY}
             />
           )}
           <div className="panel-footer">
@@ -684,57 +716,59 @@ export default function Home() {
           />
           <div className="scene-title">
             <span className="eyebrow">01 / SURFACE STUDY</span>
-            <h2>MAXUS V80</h2>
+            <h2>MXGARAGE VAN</h2>
             <span>
               {applied ? applied.subtitle : t(lang, 'page.startBlank')}
             </span>
           </div>
           <div className="scene-toolbar">
-            <div
-              className="environment-switch"
-              aria-label={t(lang, 'page.styleAria')}
-            >
-              <button
-                aria-label={t(lang, 'page.drawingMode')}
-                title={t(lang, 'page.drawingMode')}
-                disabled={applying}
-                className={presentation === 'drawing' ? 'active' : ''}
-                onClick={() => {
-                  setPresentation('drawing');
-                  setEnvironment('studio');
-                }}
+            {SHOW_QUICK_ENTRIES && (
+              <div
+                className="environment-switch"
+                aria-label={t(lang, 'page.styleAria')}
               >
-                <ScanLine size={17} />
-              </button>
-              <button
-                aria-label={t(lang, 'page.materialPreview')}
-                title={t(lang, 'page.materialPreview')}
-                disabled={applying}
-                className={
-                  environment === 'studio' && presentation === 'render'
-                    ? 'active'
-                    : ''
-                }
-                onClick={() => {
-                  setEnvironment('studio');
-                  setPresentation('render');
-                }}
-              >
-                <Sun size={17} />
-              </button>
-              <button
-                aria-label={t(lang, 'page.campsite')}
-                title={t(lang, 'page.campsite')}
-                disabled={applying}
-                className={environment === 'camp' ? 'active' : ''}
-                onClick={() => {
-                  setEnvironment('camp');
-                  setPresentation('render');
-                }}
-              >
-                <Trees size={17} />
-              </button>
-            </div>
+                <button
+                  aria-label={t(lang, 'page.drawingMode')}
+                  title={t(lang, 'page.drawingMode')}
+                  disabled={applying}
+                  className={presentation === 'drawing' ? 'active' : ''}
+                  onClick={() => {
+                    setPresentation('drawing');
+                    setEnvironment('studio');
+                  }}
+                >
+                  <ScanLine size={17} />
+                </button>
+                <button
+                  aria-label={t(lang, 'page.materialPreview')}
+                  title={t(lang, 'page.materialPreview')}
+                  disabled={applying}
+                  className={
+                    environment === 'studio' && presentation === 'render'
+                      ? 'active'
+                      : ''
+                  }
+                  onClick={() => {
+                    setEnvironment('studio');
+                    setPresentation('render');
+                  }}
+                >
+                  <Sun size={17} />
+                </button>
+                <button
+                  aria-label={t(lang, 'page.campsite')}
+                  title={t(lang, 'page.campsite')}
+                  disabled={applying}
+                  className={environment === 'camp' ? 'active' : ''}
+                  onClick={() => {
+                    setEnvironment('camp');
+                    setPresentation('render');
+                  }}
+                >
+                  <Trees size={17} />
+                </button>
+              </div>
+            )}
             <button
               className="round-control"
               title={t(lang, 'page.resetView')}
@@ -745,7 +779,7 @@ export default function Home() {
             </button>
           </div>
           <div className="drawing-furniture" aria-hidden="true">
-            <span className="sheet-index">V80 / 001</span>
+            <span className="sheet-index">VAN / 001</span>
             <span className="sheet-rule">BODY &amp; GRAPHIC STUDY</span>
             <span className="sheet-caption">DESCRIBE → GENERATE → APPLY</span>
             <i className="sheet-cross cross-a" />
@@ -762,8 +796,7 @@ export default function Home() {
               <strong>{t(lang, 'page.waitTitle')}</strong>
               <span>
                 {t(lang, 'page.waitProgress', {
-                  done: Object.values(slots).filter((v) => v === 'done')
-                    .length,
+                  done: Object.values(slots).filter((v) => v === 'done').length,
                   elapsed,
                 })}
               </span>
@@ -776,112 +809,119 @@ export default function Home() {
               {toast}
             </output>
           )}
-          <div className="interaction-dock">
-            <div className="dock-heading">
-              <span>{t(lang, 'page.dockHint')}</span>
-              <button
-                disabled={!ready || sequence}
-                className="camp-button"
-                onClick={camp}
-              >
-                {sequence ? (
-                  <LoaderCircle size={13} className="spin" />
-                ) : (
-                  <Trees size={13} />
-                )}
-                {t(lang, 'page.campButton')}
-              </button>
-            </div>
-            <div className="part-buttons">
-              <button
-                onClick={() => setPart('entry-door', !parts['entry-door'])}
-                disabled={!ready}
-                aria-pressed={!!parts['entry-door']}
-              >
-                <DoorOpen size={16} />
-                {t(lang, 'page.entryDoor')}
-                <span>{parts['entry-door'] ? '180°' : '0°'}</span>
-              </button>
-              <button
-                onClick={toggleWindows}
-                disabled={!ready}
-                aria-pressed={
-                  !!Object.entries(parts).find(
-                    ([id, on]) => id.startsWith('window') && on,
-                  )
-                }
-              >
-                <PanelTopOpen size={16} />
-                {t(lang, 'page.windows')}
-              </button>
-              <button
-                onClick={() => setPart('rooflight', !parts.rooflight)}
-                disabled={!ready}
-                aria-pressed={!!parts.rooflight}
-              >
-                <ScanLine size={16} />
-                {t(lang, 'page.rooflight')}
-              </button>
-              <button
-                onClick={() => setPart('awning', !parts.awning)}
-                disabled={!ready}
-                aria-pressed={!!parts.awning}
-              >
-                <Wind size={16} />
-                {t(lang, 'page.awning')}
-              </button>
-              <button
-                className="more-parts"
-                aria-expanded={showMore}
-                aria-label={t(lang, 'page.moreParts')}
-                onClick={() => setShowMore((v) => !v)}
-              >
-                <ChevronDown size={15} />
-              </button>
-            </div>
-            {showMore && (
-              <div className="more-part-panel">
-                {['cab-l', 'cab-r', 'slide-l', 'slide-r'].map((id) => (
+          {SHOW_QUICK_ENTRIES && (
+            <div className="interaction-dock">
+              <div className="dock-heading">
+                <span>{t(lang, 'page.dockHint')}</span>
+                <button
+                  disabled={!ready || sequence}
+                  className="camp-button"
+                  onClick={camp}
+                >
+                  {sequence ? (
+                    <LoaderCircle size={13} className="spin" />
+                  ) : (
+                    <Trees size={13} />
+                  )}
+                  {t(lang, 'page.campButton')}
+                </button>
+              </div>
+              <div className="part-buttons">
+                <button
+                  onClick={() => setPart('entry-door', !parts['entry-door'])}
+                  disabled={!ready}
+                  aria-pressed={!!parts['entry-door']}
+                >
+                  <DoorOpen size={16} />
+                  {t(lang, 'page.entryDoor')}
+                  <span>{parts['entry-door'] ? '180°' : '0°'}</span>
+                </button>
+                <button
+                  onClick={toggleWindows}
+                  disabled={!ready}
+                  aria-pressed={
+                    !!Object.entries(parts).find(
+                      ([id, on]) => id.startsWith('window') && on,
+                    )
+                  }
+                >
+                  <PanelTopOpen size={16} />
+                  {t(lang, 'page.windows')}
+                </button>
+                <button
+                  onClick={() => setPart('rooflight', !parts.rooflight)}
+                  disabled={!ready}
+                  aria-pressed={!!parts.rooflight}
+                >
+                  <ScanLine size={16} />
+                  {t(lang, 'page.rooflight')}
+                </button>
+                <button
+                  onClick={() => setPart('awning', !parts.awning)}
+                  disabled={!ready}
+                  aria-pressed={!!parts.awning}
+                >
+                  <Wind size={16} />
+                  {t(lang, 'page.awning')}
+                </button>
+                <button
+                  className="more-parts"
+                  aria-expanded={showMore}
+                  aria-label={t(lang, 'page.moreParts')}
+                  onClick={() => setShowMore((v) => !v)}
+                >
+                  <ChevronDown size={15} />
+                </button>
+              </div>
+              {showMore && (
+                <div className="more-part-panel">
+                  {['cab-l', 'cab-r', 'slide-l', 'slide-r'].map((id) => (
+                    <button
+                      key={id}
+                      disabled={!ready}
+                      aria-pressed={!!parts[id]}
+                      onClick={() => setPart(id, !parts[id])}
+                    >
+                      <span>{nameOf(id)}</span>
+                      <span className={`toggle-track ${parts[id] ? 'on' : ''}`}>
+                        <span />
+                      </span>
+                    </button>
+                  ))}
                   <button
-                    key={id}
-                    disabled={!ready}
-                    aria-pressed={!!parts[id]}
-                    onClick={() => setPart(id, !parts[id])}
+                    aria-pressed={wipers}
+                    onClick={() => setWipers((v) => !v)}
                   >
-                    <span>{nameOf(id)}</span>
-                    <span className={`toggle-track ${parts[id] ? 'on' : ''}`}>
+                    <span>{t(lang, 'page.wiperNote')}</span>
+                    <span className={`toggle-track ${wipers ? 'on' : ''}`}>
                       <span />
                     </span>
                   </button>
-                ))}
-                <button
-                  aria-pressed={wipers}
-                  onClick={() => setWipers((v) => !v)}
-                >
-                  <span>{t(lang, 'page.wiperNote')}</span>
-                  <span className={`toggle-track ${wipers ? 'on' : ''}`}>
-                    <span />
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className="scene-bottom">
             <span>
               <MousePointer2 size={14} />
               {t(lang, 'page.orbitHint')}
             </span>
-            <div className="view-switch" aria-label={t(lang, 'page.viewsAria')}>
-              {['hero', 'entry', 'driver', 'front', 'rear'].map((id) => (
-                <button
-                  key={id}
-                  onClick={() => changeView(id)}
-                  aria-pressed={view === id}
-                >
-                  {t(lang, VIEW_KEYS[id])}
-                </button>
-              ))}
-            </div>
+            {SHOW_QUICK_ENTRIES && (
+              <div
+                className="view-switch"
+                aria-label={t(lang, 'page.viewsAria')}
+              >
+                {['hero', 'entry', 'driver', 'front', 'rear'].map((id) => (
+                  <button
+                    key={id}
+                    onClick={() => changeView(id)}
+                    aria-pressed={view === id}
+                  >
+                    {t(lang, VIEW_KEYS[id])}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className="live-caption">
               <span />
               360° LIVE

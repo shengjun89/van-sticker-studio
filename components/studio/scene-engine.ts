@@ -177,7 +177,7 @@ export class SceneEngine {
     // English default; VehicleScene re-sets this from the dictionary on language change.
     this.renderer.domElement.setAttribute(
       'aria-label',
-      'Rotatable MAXUS V80 campervan — drag to orbit, scroll to zoom, click doors and windows to open or close',
+      'Rotatable campervan — drag to orbit, scroll to zoom, click doors and windows to open or close',
     );
     this.renderer.domElement.tabIndex = 0;
     this.scene.background = new THREE.Color('#edf1ed');
@@ -665,11 +665,17 @@ export class SceneEngine {
       await img.decode();
     } catch {
       if (version !== this.imageVersion || this.disposed)
-        throw new DOMException('Superseded by a newer sticker action', 'AbortError');
+        throw new DOMException(
+          'Superseded by a newer sticker action',
+          'AbortError',
+        );
       throw Error(STICKER_IMAGE_FAILED);
     }
     if (version !== this.imageVersion || this.disposed)
-      throw new DOMException('Superseded by a newer sticker action', 'AbortError');
+      throw new DOMException(
+        'Superseded by a newer sticker action',
+        'AbortError',
+      );
     this.chosen = img;
     this.paint();
     this.stickerId = sticker.id;

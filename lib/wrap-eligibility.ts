@@ -55,7 +55,7 @@ function edges(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) {
 }
 
 /**
- * Extends the V80's existing vinyl eligibility over the audited small front
+ * Extends the van's existing vinyl eligibility over the audited small front
  * paint-material gaps. Call with closed-pose matrixWorld values in model metres,
  * before converting any geometry. Returned bytes correspond to original triangle
  * order (index triplets, or consecutive nonindexed vertex triplets).
