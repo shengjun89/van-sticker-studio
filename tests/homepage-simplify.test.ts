@@ -145,7 +145,7 @@ void test('motion metadata is scrubbed but keeps its R9 anchors', () => {
   };
   assert.equal(
     data.glbSha256,
-    '532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb',
+    '78bc638b15e2fe69d822790784fef9e84dd453574c78b984957ec4d365b19f13',
   );
   assert.ok(data.grilleArcCorrection !== undefined);
 });

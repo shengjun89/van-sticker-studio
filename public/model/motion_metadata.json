@@ -1672,7 +1672,7 @@
   "triangles": 317920,
   "bytes": 15744936,
   "wiperIntervalSeconds": 5,
-  "glbSha256": "532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb",
+  "glbSha256": "78bc638b15e2fe69d822790784fef9e84dd453574c78b984957ec4d365b19f13",
   "calibratedWipersPreservedFromSha256": "9559fb30548a3ab464fbb628d91f4e3ed39510eadf5a2ebefde8610f2aecd2aa",
   "frontBadgeCorrection": {
     "mountingX": -2.8378328447705576,
@@ -1820,5 +1820,28 @@
       "y2.80": -1.253,
       "y2.85": -1.218
     }
+  },
+  "r13Correction": {
+    "revision": "20261025-r13-forehead-smooth",
+    "sha256": "78bc638b15e2fe69d822790784fef9e84dd453574c78b984957ec4d365b19f13",
+    "bytes": 15687548,
+    "method": "额头恢复到 R9 平顺圆顶：R10 额头场（x[-2.00,-1.20]、y>2.05）内全部 15,630 个移动过的顶点按顶点逐值恢复到 R9；去掉铬条上的品牌字样三角 3,974 个（顶点保留，两个铬椭圆 928 三角保留）；去掉眉线带三角 60 个并压缩掉其 64 个专属顶点（环件余 320 顶点/280 三角，窗框与轮辋/辐条保留）；轮拱、格栅、雨刷、运动元数据数值字段未动。",
+    "faceStationsMeters": {
+      "y2.60": -1.6299,
+      "y2.70": -1.5082,
+      "y2.75": -1.4316,
+      "y2.80": -1.3945,
+      "y2.85": -1.3538
+    },
+    "skylightStationsMeters": {
+      "y2.70": -1.5258,
+      "y2.80": -1.3721,
+      "y2.85": -1.2696
+    },
+    "lettersRemovedTris": 3974,
+    "ovalsKeptTris": 928,
+    "ribbonsRemovedTris": 60,
+    "trimRingsVerts": 320,
+    "trimRingsTris": 280
   }
 }

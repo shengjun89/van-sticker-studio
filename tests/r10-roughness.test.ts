@@ -10,6 +10,15 @@ import { Mesh, Vector3 } from 'three';
 // wheel rims/spokes and side brow ribbons. Anchors (grille arc, wipers,
 // window glass) are guarded by their own tests; this file guards the R10
 // additions themselves.
+//
+// R13 update (2026-10-25): the R10 forehead chord + clamp read as kinked
+// lines and a dented face on the live demo, so R13 restores the forehead
+// to the R9 smooth dome and removes the brow ribbons (their 64 verts are
+// compacted out of the rings mesh). The rings counts and the forehead
+// bin bound below are updated to the R13 state; the wheel-arch test is
+// unchanged (arches kept). R13 ground lives in tests/r13-forehead-
+// smooth.test.ts; tests/r11/r12-forehead*.test.ts were retired into
+// vss-r13/retired-tests/ once R13 covered them.
 async function loadScene() {
   const b = fs.readFileSync('public/model/mxgarage-rv.glb');
   const { scene } = await new GLTFLoader().parseAsync(
@@ -20,17 +29,18 @@ async function loadScene() {
   return scene;
 }
 
-void test('trim rings mesh carries frames, rims, spokes and brow ribbons', async () => {
+void test('trim rings mesh carries frames, rims, spokes (ribbons removed R13)', async () => {
   const scene = await loadScene();
   const mesh = scene.getObjectByName('RV_Static_Trim_Rings') as Mesh;
   assert.ok(mesh, 'RV_Static_Trim_Rings not found');
-  assert.equal(mesh.geometry.attributes.position.count, 384);
-  assert.equal((mesh.geometry.index?.count ?? 0) / 3, 340);
+  // R13: brow ribbons removed, their 64 exclusive verts compacted out
+  // (384 -> 320 verts, 340 -> 280 tris); frames and rims/spokes stay.
+  assert.equal(mesh.geometry.attributes.position.count, 320);
+  assert.equal((mesh.geometry.index?.count ?? 0) / 3, 280);
   const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   assert.deepEqual(mats.map((m) => m.name), ['Graphite']);
-  // Brow ribbons: 2 sides x 32 verts at |z| = 1.058, x in [-1.35, -1.05].
-  // (Frames and wheel rims also exceed |z| 1.05, so the band must be
-  // matched tightly, not by a loose threshold.)
+  // Brow-ribbon band: 2 sides x 32 verts at |z| = 1.058, x in [-1.35, -1.05].
+  // R13 removed these verts entirely, so the count must be 0.
   const p = mesh.geometry.attributes.position;
   let ribbonVerts = 0;
   const v = new Vector3();
@@ -41,7 +51,7 @@ void test('trim rings mesh carries frames, rims, spokes and brow ribbons', async
       v.x >= -1.36 && v.x <= -1.04
     ) ribbonVerts++;
   }
-  assert.equal(ribbonVerts, 64);
+  assert.equal(ribbonVerts, 0);
 });
 
 void test('rear wheel arch opening is lifted (gap vs tyre top)', async () => {
@@ -66,7 +76,7 @@ void test('rear wheel arch opening is lifted (gap vs tyre top)', async () => {
   assert.ok(apex < 0.82, `rear arch apex ${apex} unexpectedly high`);
 });
 
-void test('forehead side-wall top is pulled down from the R9 dome', async () => {
+void test('forehead side-wall top is back on the R9 dome (R13 restore)', async () => {
   const scene = await loadScene();
   const mesh = scene.getObjectByName('RV_Static_Body_Paint') as Mesh;
   const p = mesh.geometry.attributes.position;
@@ -79,7 +89,8 @@ void test('forehead side-wall top is pulled down from the R9 dome', async () => 
     if (Math.round(v.x * 20) / 20 !== -1.85) continue;
     if (v.y > top) top = v.y;
   }
-  // R9 bin top was 2.309 (dome); R10 pulls it to ~2.167.
-  assert.ok(top < 2.20, `forehead bin -1.85 top ${top} not pulled down`);
-  assert.ok(top > 2.10, `forehead bin -1.85 top ${top} unexpectedly low`);
+  // R9 bin top was 2.3095 (dome); R10 had pulled it to ~2.167.
+  // R13 restores the R9 dome, so the bound is the R9 value.
+  assert.ok(top < 2.34, `forehead bin -1.85 top ${top} unexpectedly high`);
+  assert.ok(top > 2.28, `forehead bin -1.85 top ${top} not restored to dome`);
 });
