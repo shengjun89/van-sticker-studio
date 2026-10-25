@@ -1672,7 +1672,7 @@
   "triangles": 317920,
   "bytes": 15744936,
   "wiperIntervalSeconds": 5,
-  "glbSha256": "31e8f1c7889417af1dada7e7248488e4f343fcc77b73e76c12a40939b34a00cc",
+  "glbSha256": "532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb",
   "calibratedWipersPreservedFromSha256": "9559fb30548a3ab464fbb628d91f4e3ed39510eadf5a2ebefde8610f2aecd2aa",
   "frontBadgeCorrection": {
     "mountingX": -2.8378328447705576,
@@ -1803,6 +1803,22 @@
       "y2.60": -1.552,
       "y2.80": -1.364,
       "y2.85": -1.330
+    }
+  },
+  "r12Correction": {
+    "revision": "20261025-r12-forehead-revert",
+    "sha256": "532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb",
+    "bytes": 15713212,
+    "method": "额头回滚到 R10：R11 改过的 6 组额头网格顶点（油漆、两侧拉花面、天窗玻璃与密封、密封件）按顶点恢复到 R10 数值，其余一切保持 R11；回滚后文件与 R10 文件字节一致。",
+    "revertedPeakDeltaMeters": 0.089,
+    "faceStationsMeters": {
+      "y2.60": -1.542,
+      "y2.80": -1.295,
+      "y2.85": -1.252
+    },
+    "skylightStationsMeters": {
+      "y2.80": -1.253,
+      "y2.85": -1.218
     }
   }
 }

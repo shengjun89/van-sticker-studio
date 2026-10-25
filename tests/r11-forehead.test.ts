@@ -4,12 +4,11 @@ import fs from 'node:fs';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Matrix3, Mesh, Vector3 } from 'three';
 
-// R11 regression: the forehead front-face steep slope itself is reshaped
-// (R10 only straightened the side-wall top line). The face is pulled onto
-// a smooth parametric arc: measured bottom/top anchors, a cubic Bezier
-// target, a tighter but tangent-continuous top corner. The upper face
-// moves forward the most (up to ~0.089 m at y 2.80); the windshield
-// junction, the roof line and the R10 side-wall top line stay put.
+// R11 regression, SUPERSEDED BY R12 (2026-10-25, user decision): the R11
+// arc below was reverted to the R10 forehead, forehead only. The R11 arc
+// values are preserved in git history and in ~/workspace/vss-r11/report.md;
+// the station/push assertions below now pin the R10 arc (R12), and the
+// authoritative revert proof lives in tests/r12-forehead-revert.test.ts.
 // Profile method (same as the fix script): paint/wrap face verts with
 // forward-facing normals, 0.05 m y-bins of min-x, 5-bin moving average.
 // Bounds are +/-0.04 m: binning plus the face's own transverse scatter
@@ -63,28 +62,32 @@ async function faceProfile() {
   return sm;
 }
 
-void test('forehead face stations sit on the R11 arc', async () => {
+void test('forehead face stations sit back on the R10 arc (R12 revert)', async () => {
   const prof = await faceProfile();
   const at = (y: number) => {
     for (const [yy, x] of prof) if (Math.abs(yy - y) < 0.026) return x;
     throw new Error(`no profile bin near ${y}`);
   };
-  // Measured R11 stations: 2.60 -1.552, 2.80 -1.364, 2.85 -1.330.
-  assert.ok(Math.abs(at(2.60) - -1.552) < 0.04, `station 2.60: ${at(2.60)}`);
-  assert.ok(Math.abs(at(2.80) - -1.364) < 0.04, `station 2.80: ${at(2.80)}`);
-  assert.ok(Math.abs(at(2.85) - -1.330) < 0.04, `station 2.85: ${at(2.85)}`);
+  // R12 reverts the R11 arc to R10. Measured R10 stations with this
+  // floor-bin method: 2.60 -1.542, 2.80 -1.295, 2.85 -1.252. (The R11
+  // report's round-bin R10 stations were -1.569/-1.288/-1.242; both sets
+  // agree within the +/-0.04 bound.)
+  assert.ok(Math.abs(at(2.60) - -1.542) < 0.04, `station 2.60: ${at(2.60)}`);
+  assert.ok(Math.abs(at(2.80) - -1.295) < 0.04, `station 2.80: ${at(2.80)}`);
+  assert.ok(Math.abs(at(2.85) - -1.252) < 0.04, `station 2.85: ${at(2.85)}`);
 });
 
-void test('upper face is pushed forward from R10', async () => {
+void test('R11 forward push is reverted (R12)', async () => {
   const prof = await faceProfile();
   const at = (y: number) => {
     for (const [yy, x] of prof) if (Math.abs(yy - y) < 0.026) return x;
     throw new Error(`no profile bin near ${y}`);
   };
-  // R10 stations (measured before this round): 2.80 -1.288, 2.85 -1.242.
-  // R11 pushes the upper face forward by ~0.08 m onto the clean slope.
-  assert.ok(at(2.80) < -1.288 - 0.05, `upper face 2.80 not pushed: ${at(2.80)}`);
-  assert.ok(at(2.85) < -1.242 - 0.05, `upper face 2.85 not pushed: ${at(2.85)}`);
+  // Negation of the R11 push assertions (which required the upper face
+  // at least 0.05 m forward of the R10 stations -1.288/-1.242). R12 puts
+  // the face back, so it must NOT clear those push thresholds.
+  assert.ok(at(2.80) > -1.288 - 0.05, `upper face 2.80 still pushed: ${at(2.80)}`);
+  assert.ok(at(2.85) > -1.242 - 0.05, `upper face 2.85 still pushed: ${at(2.85)}`);
 });
 
 void test('forehead face profile stays smooth, R10 trim rings intact', async () => {
@@ -97,8 +100,10 @@ void test('forehead face profile stays smooth, R10 trim rings intact', async () 
     const d = Math.abs(mid[i + 1][1] - 2 * mid[i][1] + mid[i - 1][1]);
     if (d > max2) max2 = d;
   }
-  // Measured R11: 0.023. The bound is 0.035 (binning noise floors this
-  // metric near 0.02); R10's strongly-forward profile measured 0.048.
+  // Measured R12 (= R10 forehead): 0.0287; R11 measured 0.0227. The bound
+  // is 0.035 (binning noise floors this metric near 0.02). This metric
+  // alone does not separate R10 from R11; the revert itself is pinned by
+  // the station tests above and by tests/r12-forehead-revert.test.ts.
   assert.ok(max2 < 0.035, `face profile second difference ${max2} too large`);
   const scene = await loadScene();
   const rings = scene.getObjectByName('RV_Static_Trim_Rings') as Mesh;
