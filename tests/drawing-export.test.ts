@@ -151,6 +151,7 @@ function exportHarness(options?: {
   gl?: ExportGl;
   trackFrames?: boolean;
   advanceFrame?: boolean;
+  duringDataUrl?: () => void;
 }) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#edf1ed');
@@ -209,6 +210,7 @@ function exportHarness(options?: {
         dataUrlCalls += 1;
         assert.equal(type, 'image/png');
         if (options?.captureError) throw new Error('capture-boom');
+        options?.duringDataUrl?.();
         return 'data:image/png;base64,iVBORw0KGgo=';
       },
     },
@@ -704,5 +706,32 @@ void test('a live context exports through readPixels and checks the context arou
   assert.match(file.dataUrl, /^data:image\/png/);
   assert.equal(harness.dataUrlCalls(), 0);
   assert.ok(lostChecks >= 2, `context was checked ${lostChecks} times`);
+  assert.deepEqual(harness.snapshot(), before);
+});
+
+void test('context loss during the toDataURL fallback is not a successful export', () => {
+  let lost = false;
+  const harness = exportHarness({
+    trackFrames: true,
+    duringDataUrl: () => {
+      lost = true;
+    },
+    gl: {
+      isContextLost: () => lost,
+      readPixels() {
+        throw new Error('multisample-readback');
+      },
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    },
+  });
+  const before = harness.snapshot();
+  withExportDocument(() => {
+    assert.throws(
+      () => harness.engine.exportDrawing('rear'),
+      /export-context-lost/,
+    );
+  });
+  assert.equal(harness.dataUrlCalls(), 1);
   assert.deepEqual(harness.snapshot(), before);
 });

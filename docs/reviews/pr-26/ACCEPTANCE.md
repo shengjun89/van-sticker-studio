@@ -20,9 +20,9 @@ Claim：`vss-3-lulu-20261025-01`。分支：`feature/3-multiview-drawing-export`
 
 ## P2-2 丢失的 WebGL 上下文
 
-`exportDrawing` 在改场景之前检查 `gl.isContextLost()`。测量读像素和最终读像素都在读取前后再查一次。上下文已丢失时不再把 `toDataURL` 当成成功。`renderer.info.render.frame` 没有增加时拒绝（测试替身没有 `info` 时跳过，已有的 toDataURL 成功用例保持原样）。
+`exportDrawing` 在改场景之前检查 `gl.isContextLost()`。测量读像素和最终读像素都在读取前后再查一次。`toDataURL` 回退在返回之后再查一次；上下文已丢失时，即使返回的字符串以 `data:image/png` 开头也不当成成功。`renderer.info.render.frame` 没有增加时拒绝（测试替身没有 `info` 时跳过，已有的 toDataURL 成功用例保持原样）。
 
-新增测试覆盖：丢失发生在改场景之前（渲染顺序为空、不调用 toDataURL）；读像素时丢失；渲染帧计数不增加；活着的上下文走 `readPixels` 且 `isContextLost` 至少被调用两次。修之前这四项分别是“没有抛错”或“检查次数为 0”。`getContext` 在这些测试里返回假上下文，不再永远是 null。
+新增测试覆盖：丢失发生在改场景之前（渲染顺序为空、不调用 toDataURL）；读像素时丢失；渲染帧计数不增加；活着的上下文走 `readPixels` 且 `isContextLost` 至少被调用两次；读像素失败后走 `toDataURL`，调用期间把上下文标成丢失，返回值仍是 PNG，必须抛 `export-context-lost` 并恢复现场。`getContext` 在这些测试里返回假上下文，不再永远是 null。
 
 ## 无文字：停止，不放宽
 
@@ -30,7 +30,7 @@ Claim：`vss-3-lulu-20261025-01`。分支：`feature/3-multiview-drawing-export`
 
 R13 已经从 `RV_Static_Chrome` 删掉字面三角形（索引三角形数 45004，字盒重心数 0）。额头上剩下的 928 个三角形是椭圆，仍在整车铬件里。徽标顶点在 `tests/fixtures/front-badge.json` 里，挂在 `RV_Static_Rubber` / `RV_Static_Chrome` 上，不是单独网格。`RV_Static_Body_Paint`、`RV_Static_Wrap_Front`、`RV_Static_Wrap_Rear` 是车身和包覆，藏掉会带走结构。
 
-因此这一项没有改代码。front / rear 的「无文字」保持未勾选。可选后续（本 PR 不做）：另开 GLB 修订，只删已确认的字面三角形，并按资产哈希链更新；不在这份 PR 里改共享 mesh 的索引。
+因此这一项没有改代码，也没有遮盖或裁切车身。dot 复核五张原图像素后的结论是：前 3/4、后 3/4、正面、背面四个视角都含 MXGARAGE，不只是正面和背面。无文字保持未勾选。资产拆分批准还没有收到。可选后续（本 PR 不做）：另开 GLB 修订，只删已确认的字面三角形，并按资产哈希链更新；不在这份 PR 里改共享 mesh 的索引。
 
 ## 本轮导出的墨迹盒
 
@@ -46,7 +46,7 @@ R13 已经从 `RV_Static_Chrome` 删掉字面三角形（索引三角形数 4500
 
 长边都在 0.70–0.90，中心距 0.5 不超过 0.05，四边都有余量。数字与取景修复后的一版一致。
 
-同视角前后图是取景缺陷与修复的页面截图（1440×900），不是本轮重新构图。本轮没有改相机。
+`hero-before.png` 和 `hero-after.png` 只是页面前后对比（1440×900），不是旧导出和新导出的构图证明。五张构图证据是下面表格对应的 2048×1536 原图。本轮没有改相机。
 
 ## 跑过 / 没跑
 

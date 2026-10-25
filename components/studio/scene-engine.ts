@@ -852,6 +852,7 @@ export class SceneEngine {
     }
     this.assertExportContext();
     const url = this.renderer.domElement.toDataURL('image/png');
+    this.assertExportContext();
     if (!url.startsWith('data:image/png'))
       throw new Error('export-capture-failed');
     return url;
