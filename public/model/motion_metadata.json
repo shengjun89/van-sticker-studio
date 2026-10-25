@@ -1672,7 +1672,7 @@
   "triangles": 317920,
   "bytes": 15744936,
   "wiperIntervalSeconds": 5,
-  "glbSha256": "532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb",
+  "glbSha256": "31e8f1c7889417af1dada7e7248488e4f343fcc77b73e76c12a40939b34a00cc",
   "calibratedWipersPreservedFromSha256": "9559fb30548a3ab464fbb628d91f4e3ed39510eadf5a2ebefde8610f2aecd2aa",
   "frontBadgeCorrection": {
     "mountingX": -2.8378328447705576,
@@ -1792,5 +1792,17 @@
     "newMesh": "RV_Static_Trim_Rings",
     "newMeshVerts": 384,
     "newMeshTris": 340
+  },
+  "r11Correction": {
+    "revision": "20261025-r11-forehead",
+    "sha256": "31e8f1c7889417af1dada7e7248488e4f343fcc77b73e76c12a40939b34a00cc",
+    "bytes": 15713212,
+    "method": "额头前脸陡坡曲面整体向实车形态靠拢：以实测上下锚点拟合三次贝塞尔目标（下段沿弦向、上段水平收尾、顶角圆滑过渡），前脸整体前移、上段最大前移89mm；铬条、雨刷、R10环件、运动元数据数值字段未动。",
+    "facePeakDeltaMeters": 0.089,
+    "faceStationsMeters": {
+      "y2.60": -1.552,
+      "y2.80": -1.364,
+      "y2.85": -1.330
+    }
   }
 }
