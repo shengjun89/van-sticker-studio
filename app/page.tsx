@@ -40,6 +40,7 @@ import type { Metadata, Presentation } from '@/components/studio/scene-engine';
 import {
   DRAWING_EXPORT_VIEWS,
   drawingExportView,
+  requestDrawingExport,
   type DrawingExportViewId,
 } from '@/lib/drawing-views';
 import { readStickerBatch } from '@/lib/sticker-stream';
@@ -292,14 +293,26 @@ export default function Home() {
     setView(value);
     vehicle.current?.setView(value);
   }, []);
-  const downloadDrawing = useCallback(() => {
-    if (busy) {
-      announce(t(langRef.current, 'export.rejectedGenerating'));
-      return;
-    }
+  const exportThroughGate = useCallback((viewId: string) => {
     try {
-      const file = vehicle.current?.exportDrawing(exportView);
-      if (!file) throw Error(t(langRef.current, 'export.notReady'));
+      return requestDrawingExport(viewId, {
+        generationActive: generation.current !== null,
+        exportDrawing: (id) => vehicle.current?.exportDrawing(id),
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'export-while-generating'
+      )
+        throw Error(t(langRef.current, 'export.rejectedGenerating'));
+      if (error instanceof Error && error.message === 'model-not-ready')
+        throw Error(t(langRef.current, 'export.notReady'));
+      throw error;
+    }
+  }, []);
+  const downloadDrawing = useCallback(() => {
+    try {
+      const file = exportThroughGate(exportView);
       const link = document.createElement('a');
       link.href = file.dataUrl;
       link.download = file.filename;
@@ -314,7 +327,7 @@ export default function Home() {
           : t(langRef.current, 'export.failed'),
       );
     }
-  }, [announce, busy, exportView]);
+  }, [announce, exportThroughGate, exportView]);
   useEffect(() => {
     if (!drawingExportPreview) return;
     const host = window as Window & {
@@ -327,17 +340,13 @@ export default function Home() {
       };
     };
     host.__drawingExport = {
-      exportDrawing: (viewId) => {
-        const file = vehicle.current?.exportDrawing(viewId);
-        if (!file) throw Error(t(langRef.current, 'export.notReady'));
-        return file;
-      },
+      exportDrawing: (viewId) => exportThroughGate(viewId),
       getState: () => vehicle.current?.getState() ?? null,
     };
     return () => {
       delete host.__drawingExport;
     };
-  }, [drawingExportPreview]);
+  }, [drawingExportPreview, exportThroughGate]);
   const camp = () => {
     stopSequence();
     setSequence(true);

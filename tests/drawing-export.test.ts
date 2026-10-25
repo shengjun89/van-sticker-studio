@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import * as THREE from 'three';
 import { SceneEngine } from '../components/studio/scene-engine.ts';
 import type { Presentation } from '../components/studio/scene-engine.ts';
@@ -9,6 +10,7 @@ import {
   DRAWING_EXPORT_VIEWS,
   STUDIO_VIEW_DIRECTIONS,
   drawingExportFilename,
+  requestDrawingExport,
 } from '../lib/drawing-views.ts';
 
 const BRAND = [/MAXUS/i, /SAIC/i, /大通/, /上汽/, /\bV80\b/];
@@ -127,10 +129,28 @@ type Limits = {
   maxPolarAngle: number;
 };
 
+type ExportGl = {
+  isContextLost: () => boolean;
+  readPixels: (
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    format: number,
+    type: number,
+    pixels: Uint8Array,
+  ) => void;
+  RGBA: number;
+  UNSIGNED_BYTE: number;
+};
+
 function exportHarness(options?: {
   captureError?: boolean;
   root?: THREE.Object3D | null;
   generating?: boolean;
+  gl?: ExportGl;
+  trackFrames?: boolean;
+  advanceFrame?: boolean;
 }) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#edf1ed');
@@ -163,6 +183,8 @@ function exportHarness(options?: {
   let pixelRatio = 1.75;
   const order: string[] = [];
   let during: ReturnType<typeof snapshot> | null = null;
+  const frames = { render: { frame: 0 } };
+  let dataUrlCalls = 0;
   const renderer = {
     getPixelRatio: () => pixelRatio,
     setPixelRatio: (value: number) => {
@@ -174,13 +196,17 @@ function exportHarness(options?: {
     },
     getDrawingBufferSize: (out: THREE.Vector2) =>
       out.set(size.x * pixelRatio, size.y * pixelRatio),
-    getContext: () => null,
+    getContext: () => options?.gl ?? null,
+    ...(options?.trackFrames ? { info: frames } : {}),
     render: () => {
       order.push('scene');
+      if (options?.trackFrames && options.advanceFrame !== false)
+        frames.render.frame += 1;
       during = snapshot(engine);
     },
     domElement: {
       toDataURL: (type?: string) => {
+        dataUrlCalls += 1;
         assert.equal(type, 'image/png');
         if (options?.captureError) throw new Error('capture-boom');
         return 'data:image/png;base64,iVBORw0KGgo=';
@@ -256,6 +282,7 @@ function exportHarness(options?: {
     order,
     snapshot: () => snapshot(engine),
     during: () => during,
+    dataUrlCalls: () => dataUrlCalls,
     limits: () => ({
       minDistance: controls.minDistance,
       maxDistance: controls.maxDistance,
@@ -492,4 +519,190 @@ void test('export framing ignores an inflated morph bounding box and fills the s
       `visible body is off center (${JSON.stringify(frame)})`,
     );
   }
+});
+
+void test('requestDrawingExport refuses while generation is active before the engine runs', () => {
+  let calls = 0;
+  const exportDrawing = () => {
+    calls += 1;
+    return { dataUrl: 'data:image/png;base64,x', filename: 'a.png' };
+  };
+  assert.throws(
+    () =>
+      requestDrawingExport('entry', {
+        generationActive: true,
+        exportDrawing,
+      }),
+    /export-while-generating/,
+  );
+  assert.equal(calls, 0);
+  const file = requestDrawingExport('entry', {
+    generationActive: false,
+    exportDrawing,
+  });
+  assert.equal(calls, 1);
+  assert.equal(file.filename, 'a.png');
+  assert.throws(
+    () =>
+      requestDrawingExport('entry', {
+        generationActive: false,
+        exportDrawing: () => undefined,
+      }),
+    /model-not-ready/,
+  );
+});
+
+void test('both page export entries consult the generation ref before the vehicle', () => {
+  const source = fs.readFileSync('app/page.tsx', 'utf8');
+  const helperStart = source.indexOf('const exportThroughGate');
+  const helperEnd = source.indexOf('const downloadDrawing');
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  const helper = source.slice(helperStart, helperEnd);
+  assert.match(helper, /requestDrawingExport/);
+  assert.match(helper, /generationActive:\s*generation\.current\s*!==\s*null/);
+  const downloadStart = source.indexOf('const downloadDrawing');
+  const downloadEnd = source.indexOf('useEffect', downloadStart);
+  const download = source.slice(downloadStart, downloadEnd);
+  assert.match(download, /exportThroughGate\(/);
+  assert.equal(download.includes('vehicle.current?.exportDrawing'), false);
+  const bridgeStart = source.indexOf('host.__drawingExport =');
+  const bridgeEnd = source.indexOf('delete host.__drawingExport');
+  assert.ok(bridgeStart >= 0 && bridgeEnd > bridgeStart);
+  const bridge = source.slice(bridgeStart, bridgeEnd);
+  assert.match(bridge, /exportThroughGate\(/);
+  assert.equal(bridge.includes('vehicle.current?.exportDrawing'), false);
+});
+
+function withExportDocument<T>(run: () => T): T {
+  const host = globalThis as { document?: unknown };
+  const previous = host.document;
+  host.document = {
+    createElement() {
+      return {
+        width: 0,
+        height: 0,
+        getContext() {
+          return {
+            createImageData(width: number, height: number) {
+              return { data: new Uint8ClampedArray(width * height * 4) };
+            },
+            putImageData() {},
+          };
+        },
+        toDataURL(type?: string) {
+          return `data:${type ?? 'image/png'};base64,live`;
+        },
+      };
+    },
+  };
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) delete host.document;
+    else host.document = previous;
+  }
+}
+
+function paperPixels(pixels: Uint8Array) {
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 241;
+    pixels[i + 1] = 238;
+    pixels[i + 2] = 228;
+    pixels[i + 3] = 255;
+  }
+}
+
+void test('a lost WebGL context is refused before the studio changes', () => {
+  const harness = exportHarness({
+    gl: {
+      isContextLost: () => true,
+      readPixels() {},
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    },
+  });
+  const before = harness.snapshot();
+  assert.throws(
+    () => harness.engine.exportDrawing('entry'),
+    /export-context-lost/,
+  );
+  assert.deepEqual(harness.snapshot(), before);
+  assert.deepEqual(harness.order, []);
+  assert.equal(harness.dataUrlCalls(), 0);
+});
+
+void test('context loss during capture is not reported as a blank success', () => {
+  let lost = false;
+  let reads = 0;
+  const harness = exportHarness({
+    trackFrames: true,
+    gl: {
+      isContextLost: () => lost,
+      readPixels(_x, _y, _w, _h, _format, _type, pixels) {
+        reads += 1;
+        lost = true;
+        pixels.fill(0);
+      },
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    },
+  });
+  const before = harness.snapshot();
+  withExportDocument(() => {
+    assert.throws(
+      () => harness.engine.exportDrawing('entry'),
+      /export-context-lost/,
+    );
+  });
+  assert.deepEqual(harness.snapshot(), before);
+  assert.equal(harness.dataUrlCalls(), 0);
+  assert.ok(reads > 0);
+});
+
+void test('a render that does not advance the frame is not a successful export', () => {
+  const harness = exportHarness({
+    trackFrames: true,
+    advanceFrame: false,
+    gl: {
+      isContextLost: () => false,
+      readPixels(_x, _y, _w, _h, _format, _type, pixels) {
+        pixels.fill(0);
+      },
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    },
+  });
+  const before = harness.snapshot();
+  withExportDocument(() => {
+    assert.throws(
+      () => harness.engine.exportDrawing('front'),
+      /export-render-noop/,
+    );
+  });
+  assert.deepEqual(harness.snapshot(), before);
+  assert.equal(harness.dataUrlCalls(), 0);
+});
+
+void test('a live context exports through readPixels and checks the context around capture', () => {
+  let lostChecks = 0;
+  const harness = exportHarness({
+    trackFrames: true,
+    gl: {
+      isContextLost: () => {
+        lostChecks += 1;
+        return false;
+      },
+      readPixels(_x, _y, _w, _h, _format, _type, pixels) {
+        paperPixels(pixels);
+      },
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+    },
+  });
+  const before = harness.snapshot();
+  const file = withExportDocument(() => harness.engine.exportDrawing('entry'));
+  assert.match(file.dataUrl, /^data:image\/png/);
+  assert.equal(harness.dataUrlCalls(), 0);
+  assert.ok(lostChecks >= 2, `context was checked ${lostChecks} times`);
+  assert.deepEqual(harness.snapshot(), before);
 });

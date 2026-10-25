@@ -580,6 +580,7 @@ export class SceneEngine {
     const view = drawingExportView(viewId);
     if (!view) throw new Error('unknown-drawing-view');
     if (!this.root) throw new Error('model-not-ready');
+    this.assertExportContext();
     const filename = drawingExportFilename(view.id, VEHICLE_ASSET_REVISION);
     const savedPosition = this.camera.position.clone();
     const savedQuaternion = this.camera.quaternion.clone();
@@ -614,11 +615,9 @@ export class SceneEngine {
       this.placeExportCamera(view.direction);
       // The geometric fit includes occluded corners. A second pass recenters
       // the ink that is actually on the sheet.
-      this.renderer.render(this.scene, this.camera);
-      this.silhouette.render(this.renderer, this.scene, this.camera, this.root);
+      this.renderExportPass();
       this.refineExportFrame();
-      this.renderer.render(this.scene, this.camera);
-      this.silhouette.render(this.renderer, this.scene, this.camera, this.root);
+      this.renderExportPass();
       return { dataUrl: this.captureExportPng(), filename };
     } finally {
       this.scene.fog = savedFog;
@@ -733,18 +732,44 @@ export class SceneEngine {
       distance = solveDistance();
     }
   }
-  /** Pan and dolly so the drawn ink, not occluded bounds, sits in the sheet. */
+  private exportContextLost() {
+    const gl = this.renderer.getContext();
+    return gl !== null && gl.isContextLost();
+  }
+  private assertExportContext() {
+    if (this.exportContextLost()) throw new Error('export-context-lost');
+  }
+  /** Draw one export frame and refuse a lost context or a renderer no-op. */
+  private renderExportPass() {
+    if (!this.root) throw new Error('model-not-ready');
+    this.assertExportContext();
+    const frameBefore = this.renderer.info?.render.frame;
+    this.renderer.render(this.scene, this.camera);
+    if (
+      typeof frameBefore === 'number' &&
+      this.renderer.info.render.frame === frameBefore
+    )
+      throw new Error('export-render-noop');
+    this.silhouette.render(this.renderer, this.scene, this.camera, this.root);
+    this.assertExportContext();
+  }
+  /** Pan so the drawn ink, not occluded bounds, sits in the sheet. */
   private refineExportFrame() {
     const width = DRAWING_EXPORT_PX.width;
     const height = DRAWING_EXPORT_PX.height;
     const gl = this.renderer.getContext();
     if (!gl || typeof document === 'undefined') return;
+    this.assertExportContext();
     const pixels = new Uint8Array(width * height * 4);
     try {
       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    } catch {
+    } catch (error) {
+      if (this.exportContextLost()) throw new Error('export-context-lost');
+      if (error instanceof Error && error.message === 'export-context-lost')
+        throw error;
       return;
     }
+    this.assertExportContext();
     let minX: number = width;
     let minY: number = height;
     let maxX = -1;
@@ -806,16 +831,26 @@ export class SceneEngine {
       throw new Error('export-size-mismatch');
     const gl = this.renderer.getContext();
     if (gl && typeof document !== 'undefined') {
+      this.assertExportContext();
       try {
         const pixels = new Uint8Array(width * height * 4);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        this.assertExportContext();
         if (pixels.some((value) => value !== 0))
           return rgbaToPngDataUrl(pixels, width, height);
-      } catch {
+      } catch (error) {
+        if (this.exportContextLost()) throw new Error('export-context-lost');
+        if (
+          error instanceof Error &&
+          (error.message === 'export-context-lost' ||
+            error.message === 'export-render-noop')
+        )
+          throw error;
         // A multisampled drawing buffer can reject readPixels. The canvas
         // read below is the same frame, so it still sees the export.
       }
     }
+    this.assertExportContext();
     const url = this.renderer.domElement.toDataURL('image/png');
     if (!url.startsWith('data:image/png'))
       throw new Error('export-capture-failed');

@@ -83,3 +83,19 @@ export function drawingExportFilename(viewId: string, revision: string): string 
   if (!SAFE_REVISION.test(revision)) throw new Error('unsafe-drawing-filename');
   return `drawing-${view.id}-${revision}.png`;
 }
+
+/** Shared by the hidden control and the preview bridge. */
+export function requestDrawingExport(
+  viewId: string,
+  gate: {
+    generationActive: boolean;
+    exportDrawing: (
+      viewId: string,
+    ) => { dataUrl: string; filename: string } | undefined;
+  },
+) {
+  if (gate.generationActive) throw new Error('export-while-generating');
+  const file = gate.exportDrawing(viewId);
+  if (!file) throw new Error('model-not-ready');
+  return file;
+}
