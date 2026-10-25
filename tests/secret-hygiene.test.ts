@@ -334,6 +334,43 @@ function statementListBinding(
   return hit;
 }
 
+function isVarDeclarationList(list: ts.VariableDeclarationList): boolean {
+  return (
+    (list.flags & ts.NodeFlags.Let) === 0 &&
+    (list.flags & ts.NodeFlags.Const) === 0
+  );
+}
+
+function declaresFunctionScopedVar(root: ts.Node, text: string): boolean {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found || (node !== root && ts.isFunctionLike(node))) return;
+    if (
+      ts.isVariableStatement(node) &&
+      isVarDeclarationList(node.declarationList)
+    ) {
+      for (const declaration of node.declarationList.declarations) {
+        if (bindingDeclares(declaration.name, text)) found = true;
+      }
+    }
+    if (
+      (ts.isForStatement(node) ||
+        ts.isForInStatement(node) ||
+        ts.isForOfStatement(node)) &&
+      node.initializer &&
+      ts.isVariableDeclarationList(node.initializer) &&
+      isVarDeclarationList(node.initializer)
+    ) {
+      for (const declaration of node.initializer.declarations) {
+        if (bindingDeclares(declaration.name, text)) found = true;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return found;
+}
+
 function functionNameText(node: ts.Node): string | undefined {
   if (
     (ts.isFunctionDeclaration(node) ||
@@ -358,6 +395,7 @@ function bindingInNode(
     for (const param of node.parameters) {
       if (bindingDeclares(param.name, text)) return 'reject';
     }
+    if (declaresFunctionScopedVar(node, text)) return 'reject';
     return undefined;
   }
   if (ts.isCatchClause(node)) {
@@ -502,6 +540,7 @@ function resolveExpr(
 const SAME_ORIGIN_BASE = 'https://studio.invalid';
 
 function isAllowedSameOrigin(url: string): boolean {
+  if (!url.startsWith('/') || url.startsWith('//')) return false;
   if (
     url.includes('\\') ||
     url.includes('..') ||
@@ -1038,6 +1077,70 @@ void test('a parameter shadows a safe module fetch target', () => {
   assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
 });
 
+void test('a nested var inside if shadows a safe module fetch target', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'app/page.tsx',
+        [
+          "const target = '/api/status';",
+          'function send() {',
+          '  if (true) { var target = "https://example.com/hook"; }',
+          '  return fetch(target);',
+          '}',
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a var declared in a loop shadows a later fetch', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'app/page.tsx',
+        [
+          "const target = '/api/status';",
+          'function send() {',
+          '  for (let i = 0; i < 1; i++) {',
+          '    var target = "https://example.com/hook";',
+          '  }',
+          '  return fetch(target);',
+          '}',
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a var in one switch case shadows a fetch in another case', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'app/page.tsx',
+        [
+          "const target = '/api/status';",
+          'function send(kind: string) {',
+          '  switch (kind) {',
+          "    case 'a':",
+          '      var target = "https://example.com/hook";',
+          '      break;',
+          '    default:',
+          '      return fetch(target);',
+          '  }',
+          '}',
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
 void test('a block binding shadows a safe module fetch target', () => {
   const findings = checkSecretHygiene(
     new Map([
@@ -1090,6 +1193,31 @@ void test('a parameter shadowing an imported constant fails closed', () => {
   ]);
   const findings = checkSecretHygiene(files);
   assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('document-relative paths are not root /api or /model fetches', () => {
+  for (const url of [
+    'api/status',
+    './api/status',
+    'model/a.glb',
+    './model/a.glb',
+  ]) {
+    const findings = checkSecretHygiene(
+      new Map([['app/page.tsx', `fetch(${JSON.stringify(url)});\n`]]),
+    );
+    assert.ok(
+      findings.some((finding) => finding.rule === 'network-not-same-origin'),
+      url,
+    );
+  }
+  assert.deepEqual(
+    checkSecretHygiene(
+      new Map([
+        ['app/page.tsx', "fetch('/api/status');\nfetch('/model/a.glb');\n"],
+      ]),
+    ),
+    [],
+  );
 });
 
 void test('encoded dot-segment traversal is not an allowed same-origin path', () => {
