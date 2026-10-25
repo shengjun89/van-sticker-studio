@@ -371,6 +371,20 @@ function declaresFunctionScopedVar(root: ts.Node, text: string): boolean {
   return found;
 }
 
+function caseBlockLexicalShadow(
+  caseBlock: ts.CaseBlock,
+  text: string,
+): 'reject' | undefined {
+  const statements: ts.Statement[] = [];
+  for (const clause of caseBlock.clauses) {
+    statements.push(...clause.statements);
+  }
+  if (statementListBinding(statements, text) === undefined) return undefined;
+  // A CaseBlock is one lexical environment. let/const/class/function in any
+  // clause shadows every clause; fall-through and TDZ are not a static URL.
+  return 'reject';
+}
+
 function functionNameText(node: ts.Node): string | undefined {
   if (
     (ts.isFunctionDeclaration(node) ||
@@ -425,6 +439,9 @@ function bindingInNode(
   }
   if (ts.isCaseClause(node) || ts.isDefaultClause(node)) {
     return statementListBinding(node.statements, text);
+  }
+  if (ts.isCaseBlock(node)) {
+    return caseBlockLexicalShadow(node, text);
   }
   return undefined;
 }
@@ -1133,6 +1150,54 @@ void test('a var in one switch case shadows a fetch in another case', () => {
           '      return fetch(target);',
           '  }',
           '}',
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a switch-scoped let in another case shadows a fetch', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'app/page.tsx',
+        [
+          "const target = '/api/status';",
+          'function send(kind: string) {',
+          '  switch (kind) {',
+          "    case 'a':",
+          '      let target = "https://example.com/hook";',
+          "    case 'b':",
+          '      return fetch(target);',
+          '  }',
+          '}',
+          "send('a');",
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a switch-scoped const in another case shadows a fetch', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'app/page.tsx',
+        [
+          "const target = '/api/status';",
+          'function send(kind: string) {',
+          '  switch (kind) {',
+          "    case 'a':",
+          '      const target = "https://example.com/hook";',
+          "    case 'b':",
+          '      return fetch(target);',
+          '  }',
+          '}',
+          "send('a');",
           '',
         ].join('\n'),
       ],
