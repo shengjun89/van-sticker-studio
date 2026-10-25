@@ -20,13 +20,13 @@ const nodeRequire = createRequire(import.meta.url);
 
 const COPY = {
   en: {
-    notConfigured: 'AI design opens soon. Try a sample first.',
+    notConfigured: 'AI design is currently unavailable. Try a sample.',
     checking: 'Checking whether generation is available',
     failed: 'Could not read generation status. Try a sample first.',
     ready: 'Design service ready · about 1–3 min',
   },
   zh: {
-    notConfigured: 'AI 设计即将开放，先试试样例',
+    notConfigured: 'AI 设计暂不可用，先试试样例',
     checking: '正在确认生成服务是否可用',
     failed: '暂时无法确认生成服务，请先试试样例',
     ready: '设计服务已就绪 · 约 1–3 分钟',
@@ -679,6 +679,8 @@ void test('status copy is bilingual and does not name a provider or a server', (
     assert.equal(dictionary(lang)['page.aiConnected'], COPY[lang].ready);
   }
   const joined = Object.values(STRINGS.en).concat(Object.values(STRINGS.zh)).join('\n');
+  assert.equal(joined.includes('即将开放'), false);
+  assert.equal(/opens soon/i.test(joined), false);
   assert.equal(joined.includes('正在连接设计工作台'), false);
   assert.equal(joined.includes('Connecting to the design studio'), false);
   assert.equal(joined.includes('awaiting server setup'), false);
@@ -908,6 +910,137 @@ void test('a slow failed read cannot disable generation after a newer ready stat
     });
     await flush();
     assert.equal(calls.filter((call) => call.url.includes('/api/generate')).length, 1);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    host.parentNode?.removeChild(host);
+    globalThis.fetch = previous;
+  }
+});
+
+void test('a late ready status cannot re-enable generation after AI_NOT_CONFIGURED', async () => {
+  let releaseStatus: ((response: Response) => void) | null = null;
+  let statusCount = 0;
+  const calls: FetchCall[] = [];
+  const previous = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    calls.push({
+      url,
+      method: (init?.method ?? 'GET').toUpperCase(),
+      body: typeof init?.body === 'string' ? init.body : null,
+    });
+    if (url.includes('/api/generate')) {
+      return new Response(
+        JSON.stringify({ code: 'AI_NOT_CONFIGURED', error: 'unavailable' }),
+        { status: 503, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (url.includes('/api/status')) {
+      statusCount += 1;
+      if (statusCount === 1) return Response.json({ configured: true });
+      if (statusCount === 2) {
+        return new Promise<Response>((resolve) => {
+          releaseStatus = resolve;
+        });
+      }
+      return Response.json({ configured: true });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  }) as typeof fetch;
+
+  const host = documentShim.createElement('div');
+  documentShim.body.appendChild(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const buttonOf = () => {
+    const node = walk(host).find((item) => hasClass(item, 'generate-button'));
+    if (!node) throw new Error('generate button is missing');
+    return node;
+  };
+  const noteOf = () => walk(host).find((item) => hasClass(item, 'ai-note'));
+  const disabled = () =>
+    buttonOf().disabled === true || buttonOf().hasAttribute('disabled');
+  const generateCount = () =>
+    calls.filter((call) => call.url.includes('/api/generate')).length;
+  try {
+    await act(async () => {
+      root.render(React.createElement(Home));
+    });
+    await flush();
+    const toggle = walk(host).find(
+      (node) => node.tagName === 'BUTTON' && hasClass(node, 'fold-toggle'),
+    );
+    assert.ok(toggle);
+    await act(async () => {
+      toggle.dispatchEvent(new ClickEvent('click', { bubbles: true, cancelable: true }));
+    });
+    const chip = walk(host).find(
+      (node) => node.tagName === 'BUTTON' && node.textContent.includes('Retro Coast'),
+    );
+    assert.ok(chip);
+    await act(async () => {
+      chip.dispatchEvent(new ClickEvent('click', { bubbles: true, cancelable: true }));
+    });
+    assert.equal(disabled(), false);
+    assert.equal(noteOf()?.textContent, COPY.en.ready);
+    await act(async () => {
+      windowShim.dispatchEvent(new Event('focus'));
+    });
+    assert.equal(statusCount, 2);
+    assert.ok(releaseStatus);
+    await act(async () => {
+      buttonOf().dispatchEvent(
+        new ClickEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    let settled = false;
+    for (let i = 0; i < 20 && !settled; i += 1) {
+      await flush();
+      settled =
+        noteOf()?.textContent === COPY.en.notConfigured &&
+        disabled() &&
+        generateCount() === 1;
+      if (!settled) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    assert.equal(settled, true);
+    assert.equal(generateCount(), 1);
+    await act(async () => {
+      releaseStatus?.(Response.json({ configured: true }));
+    });
+    await flush();
+    await flush();
+    assert.equal(disabled(), true);
+    assert.equal(noteOf()?.textContent, COPY.en.notConfigured);
+    assert.equal(generateCount(), 1);
+    const textarea = walk(host).find((node) => node.tagName === 'TEXTAREA');
+    assert.ok(textarea);
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyEvent('keydown', {
+          key: 'Enter',
+          bubbles: true,
+          cancelable: true,
+          metaKey: true,
+        }),
+      );
+    });
+    await flush();
+    assert.equal(generateCount(), 1);
+    assert.equal(disabled(), true);
+    await act(async () => {
+      windowShim.dispatchEvent(new Event('focus'));
+    });
+    await flush();
+    await flush();
+    assert.equal(noteOf()?.textContent, COPY.en.ready);
+    assert.equal(disabled(), false);
+    assert.equal(generateCount(), 1);
   } finally {
     await act(async () => {
       root.unmount();

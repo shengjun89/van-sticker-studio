@@ -98,6 +98,7 @@ export default function Home() {
   const [availability, setAvailability] =
     useState<GenerationAvailability>('loading');
   const availabilityRef = useRef<GenerationAvailability>('loading');
+  const statusEpoch = useRef(0);
   const [ready, setReady] = useState(false);
   const [meta, setMeta] = useState<Metadata | null>(null);
   const [parts, setParts] = useState<Record<string, boolean>>({});
@@ -140,20 +141,19 @@ export default function Home() {
   }, []);
   useEffect(() => {
     let active = true;
-    let requestId = 0;
     const readStatus = () => {
-      const id = ++requestId;
+      const epoch = ++statusEpoch.current;
       void fetch('/api/status')
         .then(async (response) => {
           if (!response.ok) throw new Error('status');
           return (await response.json()) as unknown;
         })
         .then((payload) => {
-          if (!active || id !== requestId) return;
+          if (!active || epoch !== statusEpoch.current) return;
           setAvailability(generationAvailabilityFromPayload(payload));
         })
         .catch(() => {
-          if (!active || id !== requestId) return;
+          if (!active || epoch !== statusEpoch.current) return;
           setAvailability('status_failed');
         });
     };
@@ -241,8 +241,11 @@ export default function Home() {
       });
       if (!response.ok) {
         const d = (await response.json()) as { code?: string; error?: string };
-        if (d.code === 'AI_NOT_CONFIGURED')
+        if (d.code === 'AI_NOT_CONFIGURED') {
+          statusEpoch.current += 1;
+          availabilityRef.current = 'not_configured';
           setAvailability('not_configured');
+        }
         throw Error(d.error || t(langRef.current, 'error.generateFailedRetry'));
       }
       if (!response.body) throw Error(t(langRef.current, 'error.noStreamData'));
