@@ -1,0 +1,889 @@
+/**
+ * Secret hygiene for issue #7 (clarified by the coordinator comment on
+ * 2026-10-25). checkSecretHygiene is a pure function from path → text.
+ * A browser-prefix hit fails unless path, line number, and exact line text
+ * are on the allowlist. Browser fetch / loadAsync targets must resolve to
+ * same-origin /api/ or /model/; anything unresolved fails. Static only.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
+
+const BROWSER_PREFIX = 'NEXT_' + 'PUBLIC_';
+const VENDOR_HOST = 'api.' + 'openai.com';
+const KEY_NAME = 'OPENAI_' + 'API_KEY';
+const SK_PATTERN = /sk-[A-Za-z0-9_-]{20,}/;
+
+const README_LINE_23 =
+  'Configure `' +
+  KEY_NAME +
+  '` as a Sites server secret. Never use a `' +
+  BROWSER_PREFIX +
+  '` variable for the key. `OPENAI_IMAGE_MODEL` is optional and defaults to `gpt-image-2`. The browser never receives the key. For local development, copy `.dev.vars.example` to the ignored `.dev.vars` and set values there.';
+
+const DEPLOY_LINE_136 =
+  '- **严禁**使用 `' +
+  BROWSER_PREFIX +
+  '` 前缀变量：带该前缀的变量会被打进前端 bundle，等于公开密钥。';
+
+const DEPLOY_LINE_259 =
+  '- [ ] 生产 secret 只存在于服务端（`wrangler secret list` 只见变量名），前端环境变量中无 `' +
+  BROWSER_PREFIX +
+  '` 形式的 key';
+
+const DEPLOY_LINE_285 =
+  '2. **再查 secret 是否存在于正确环境**：确认本地查的是 `.dev.vars`、线上查的是目标 Worker 的 secret（`wrangler secret list` 或控制台），两者互不相通是最常见误配；同时确认变量名拼写为 `' +
+  KEY_NAME +
+  '`（及可选的 `OPENAI_IMAGE_MODEL`），没有误用 `' +
+  BROWSER_PREFIX +
+  '` 前缀、没有多余空格。';
+
+export const DOC_SAFETY_ALLOWLIST: readonly {
+  path: string;
+  lineNumber: number;
+  line: string;
+  reason: string;
+}[] = [
+  {
+    path: 'README.md',
+    lineNumber: 23,
+    line: README_LINE_23,
+    reason:
+      'Verified documentation safety statement: README tells readers not to expose the key with the browser prefix.',
+  },
+  {
+    path: 'DEPLOY.md',
+    lineNumber: 136,
+    line: DEPLOY_LINE_136,
+    reason:
+      'Verified documentation safety statement: DEPLOY forbids the browser prefix because it is bundled to the client.',
+  },
+  {
+    path: 'DEPLOY.md',
+    lineNumber: 259,
+    line: DEPLOY_LINE_259,
+    reason:
+      'Verified documentation safety statement: deployment checklist says the prefix must not appear as a key.',
+  },
+  {
+    path: 'DEPLOY.md',
+    lineNumber: 285,
+    line: DEPLOY_LINE_285,
+    reason:
+      'Verified documentation safety statement: troubleshooting text says not to misuse the prefix.',
+  },
+];
+
+export type HygieneRule =
+  | 'next-public-prefix'
+  | 'example-sk-pattern'
+  | 'browser-key-name'
+  | 'browser-vendor-host'
+  | 'network-vendor'
+  | 'network-external'
+  | 'network-protocol-relative'
+  | 'network-unresolved'
+  | 'network-not-same-origin'
+  | 'gitignore-entry';
+
+export type HygieneFinding = {
+  path: string;
+  line: number;
+  rule: HygieneRule;
+  detail: string;
+};
+
+const NETWORK_CALLEES = new Set(['fetch', 'loadAsync']);
+const REQUIRED_GITIGNORE_LINES = ['.env*', '.dev.vars', '/dist/'] as const;
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  '.git',
+  '.next',
+  '.vinext',
+  '.wrangler',
+  'coverage',
+  'out',
+]);
+
+type Binding =
+  | { kind: 'import'; spec: string; imported: string }
+  | { kind: 'init'; initializer: ts.Expression }
+  | { kind: 'unresolved' };
+
+type StoredBinding = Binding | 'ambiguous';
+
+type Cache = {
+  sourceFiles: Map<string, ts.SourceFile>;
+  bindings: Map<string, Map<string, StoredBinding>>;
+};
+
+function normalizePath(input: string): string {
+  const parts: string[] = [];
+  for (const part of input.replaceAll('\\', '/').split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join('/');
+}
+
+function isBrowserReachable(filePath: string): boolean {
+  return (
+    filePath === 'app/page.tsx' ||
+    filePath === 'app/layout.tsx' ||
+    filePath.startsWith('app/body-lab/') ||
+    filePath.startsWith('components/') ||
+    filePath.startsWith('hooks/')
+  );
+}
+
+function isExampleEnv(filePath: string): boolean {
+  const base = filePath.slice(filePath.lastIndexOf('/') + 1);
+  return base === '.env.example' || base === '.dev.vars.example';
+}
+
+function isSkippedCredential(filePath: string): boolean {
+  const base = filePath.slice(filePath.lastIndexOf('/') + 1);
+  if (base === '.env.example' || base === '.dev.vars.example') return false;
+  if (base === '.env' || base.startsWith('.env.')) return true;
+  if (base === '.dev.vars' || base.startsWith('.dev.vars.')) return true;
+  return false;
+}
+
+function scriptKind(filePath: string): ts.ScriptKind | null {
+  if (filePath.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (filePath.endsWith('.ts')) return ts.ScriptKind.TS;
+  if (filePath.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (
+    filePath.endsWith('.js') ||
+    filePath.endsWith('.mjs') ||
+    filePath.endsWith('.cjs')
+  ) {
+    return ts.ScriptKind.JS;
+  }
+  return null;
+}
+
+function isAllowlisted(
+  filePath: string,
+  lineNumber: number,
+  lineText: string,
+): boolean {
+  return DOC_SAFETY_ALLOWLIST.some(
+    (entry) =>
+      entry.path === filePath &&
+      entry.lineNumber === lineNumber &&
+      entry.line === lineText,
+  );
+}
+
+function calleeName(expression: ts.Expression): string | null {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  return null;
+}
+
+function unwrap(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function sourceFileOf(
+  filePath: string,
+  files: ReadonlyMap<string, string>,
+  cache: Cache,
+): ts.SourceFile | null {
+  const cached = cache.sourceFiles.get(filePath);
+  if (cached) return cached;
+  const text = files.get(filePath);
+  const kind = scriptKind(filePath);
+  if (text === undefined || !kind) return null;
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    text,
+    ts.ScriptTarget.ESNext,
+    true,
+    kind,
+  );
+  cache.sourceFiles.set(filePath, sourceFile);
+  return sourceFile;
+}
+
+function bindingsOf(
+  filePath: string,
+  files: ReadonlyMap<string, string>,
+  cache: Cache,
+): Map<string, StoredBinding> {
+  const cached = cache.bindings.get(filePath);
+  if (cached) return cached;
+  const stored = new Map<string, StoredBinding>();
+  cache.bindings.set(filePath, stored);
+  const sourceFile = sourceFileOf(filePath, files, cache);
+  if (!sourceFile) return stored;
+  const set = (name: string, binding: Binding) => {
+    stored.set(name, stored.has(name) ? 'ambiguous' : binding);
+  };
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      statement.importClause &&
+      ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      const spec = statement.moduleSpecifier.text;
+      const clause = statement.importClause;
+      const clauseIsTypeOnly =
+        clause.phaseModifier === ts.SyntaxKind.TypeKeyword;
+      if (clause.name && !clauseIsTypeOnly) {
+        set(clause.name.text, { kind: 'unresolved' });
+      }
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          if (element.isTypeOnly || clauseIsTypeOnly) continue;
+          set(element.name.text, {
+            kind: 'import',
+            spec,
+            imported: element.propertyName?.text ?? element.name.text,
+          });
+        }
+      }
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer)
+        continue;
+      set(declaration.name.text, {
+        kind: 'init',
+        initializer: declaration.initializer,
+      });
+    }
+  }
+  return stored;
+}
+
+function resolveModuleSpecifier(
+  fromFile: string,
+  spec: string,
+  files: ReadonlyMap<string, string>,
+): string | null {
+  let base: string | null = null;
+  if (spec.startsWith('@/')) base = normalizePath(spec.slice(2));
+  else if (spec.startsWith('.')) {
+    const dir = fromFile.split('/').slice(0, -1);
+    base = normalizePath([...dir, spec].join('/'));
+  }
+  if (base === null) return null;
+  const candidates = [base];
+  if (!/\.(tsx?|jsx?|mjs|cjs)$/.test(base)) {
+    candidates.push(
+      `${base}.ts`,
+      `${base}.tsx`,
+      `${base}.js`,
+      `${base}.mjs`,
+      `${base}/index.ts`,
+      `${base}/index.tsx`,
+    );
+  }
+  for (const candidate of candidates) {
+    if (files.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveIdent(
+  name: string,
+  filePath: string,
+  files: ReadonlyMap<string, string>,
+  cache: Cache,
+  stack: readonly string[],
+): { ok: true; value: string } | { ok: false } {
+  const key = `${filePath}#${name}`;
+  if (stack.includes(key)) return { ok: false };
+  const binding = bindingsOf(filePath, files, cache).get(name);
+  if (!binding || binding === 'ambiguous' || binding.kind === 'unresolved') {
+    return { ok: false };
+  }
+  const next = [...stack, key];
+  if (binding.kind === 'import') {
+    const target = resolveModuleSpecifier(filePath, binding.spec, files);
+    if (!target) return { ok: false };
+    return resolveIdent(binding.imported, target, files, cache, next);
+  }
+  return resolveExpr(binding.initializer, filePath, files, cache, next);
+}
+
+function resolveExpr(
+  expression: ts.Expression,
+  filePath: string,
+  files: ReadonlyMap<string, string>,
+  cache: Cache,
+  stack: readonly string[],
+): { ok: true; value: string } | { ok: false } {
+  const node = unwrap(expression);
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return { ok: true, value: node.text };
+  }
+  if (ts.isTemplateExpression(node)) {
+    let value = node.head.text;
+    for (const span of node.templateSpans) {
+      const part = resolveExpr(span.expression, filePath, files, cache, stack);
+      if (!part.ok) return part;
+      value += part.value + span.literal.text;
+    }
+    return { ok: true, value };
+  }
+  if (ts.isIdentifier(node))
+    return resolveIdent(node.text, filePath, files, cache, stack);
+  return { ok: false };
+}
+
+function isAllowedSameOrigin(url: string): boolean {
+  if (
+    url.includes('\\') ||
+    url.includes('..') ||
+    url.includes('//') ||
+    /\s/.test(url)
+  ) {
+    return false;
+  }
+  return url.startsWith('/api/') || url.startsWith('/model/');
+}
+
+function classifyTarget(url: string): HygieneRule | null {
+  if (url.includes(VENDOR_HOST)) return 'network-vendor';
+  if (url.startsWith('//')) return 'network-protocol-relative';
+  if (url.includes('://')) return 'network-external';
+  if (isAllowedSameOrigin(url)) return null;
+  return 'network-not-same-origin';
+}
+
+function scanNetworkCalls(
+  filePath: string,
+  files: ReadonlyMap<string, string>,
+  cache: Cache,
+  findings: HygieneFinding[],
+): void {
+  const sourceFile = sourceFileOf(filePath, files, cache);
+  if (!sourceFile) return;
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node.expression);
+      if (name && NETWORK_CALLEES.has(name)) {
+        const line =
+          ts.getLineAndCharacterOfPosition(
+            sourceFile,
+            node.getStart(sourceFile),
+          ).line + 1;
+        const arg = node.arguments[0];
+        const resolved = arg
+          ? resolveExpr(arg, filePath, files, cache, [])
+          : { ok: false as const };
+        if (!resolved.ok) {
+          findings.push({
+            path: filePath,
+            line,
+            rule: 'network-unresolved',
+            detail: `${name} target could not be resolved to a static string`,
+          });
+        } else {
+          const rule = classifyTarget(resolved.value);
+          if (rule) {
+            findings.push({
+              path: filePath,
+              line,
+              rule,
+              detail: `${name} target is not an allowed same-origin /api/ or /model/ path`,
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
+export function checkSecretHygiene(
+  input: ReadonlyMap<string, string>,
+): HygieneFinding[] {
+  const files = new Map<string, string>();
+  for (const [rawPath, content] of input)
+    files.set(normalizePath(rawPath), content);
+  const findings: HygieneFinding[] = [];
+  const cache: Cache = { sourceFiles: new Map(), bindings: new Map() };
+  const paths = [...files.keys()].sort();
+  for (const filePath of paths) {
+    const content = files.get(filePath) ?? '';
+    const lines = content.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index++) {
+      const lineText = lines[index] ?? '';
+      const lineNumber = index + 1;
+      if (
+        lineText.includes(BROWSER_PREFIX) &&
+        !isAllowlisted(filePath, lineNumber, lineText)
+      ) {
+        findings.push({
+          path: filePath,
+          line: lineNumber,
+          rule: 'next-public-prefix',
+          detail:
+            'browser-prefix marker is not an allowlisted safety statement',
+        });
+      }
+      if (isExampleEnv(filePath) && lineText.search(SK_PATTERN) !== -1) {
+        findings.push({
+          path: filePath,
+          line: lineNumber,
+          rule: 'example-sk-pattern',
+          detail: 'example env file contains an sk- pattern',
+        });
+      }
+    }
+    if (filePath === '.gitignore') {
+      const present = new Set(lines.map((line) => line.trim()));
+      for (const required of REQUIRED_GITIGNORE_LINES) {
+        if (!present.has(required)) {
+          findings.push({
+            path: filePath,
+            line: 1,
+            rule: 'gitignore-entry',
+            detail: `gitignore is missing entry ${required}`,
+          });
+        }
+      }
+    }
+    if (!isBrowserReachable(filePath)) continue;
+    for (let index = 0; index < lines.length; index++) {
+      const lineText = lines[index] ?? '';
+      if (lineText.includes(KEY_NAME)) {
+        findings.push({
+          path: filePath,
+          line: index + 1,
+          rule: 'browser-key-name',
+          detail: 'browser-reachable file contains the server key name',
+        });
+      }
+      if (lineText.includes(VENDOR_HOST)) {
+        findings.push({
+          path: filePath,
+          line: index + 1,
+          rule: 'browser-vendor-host',
+          detail: 'browser-reachable file contains the vendor host',
+        });
+      }
+    }
+    if (scriptKind(filePath))
+      scanNetworkCalls(filePath, files, cache, findings);
+  }
+  findings.sort(
+    (a, b) =>
+      a.path.localeCompare(b.path) ||
+      a.line - b.line ||
+      a.rule.localeCompare(b.rule),
+  );
+  return findings;
+}
+
+function syntheticKey(): string {
+  return 'sk-' + 'synthetic' + 'EXAMPLE' + 'NOTAREAL' + 'KEY000000';
+}
+
+let workspaceFiles: Map<string, string> | undefined;
+
+function loadWorkspaceFiles(root = process.cwd()): Map<string, string> {
+  if (workspaceFiles) return workspaceFiles;
+  const files = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue;
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue;
+        walk(abs);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const rel = normalizePath(path.relative(root, abs));
+      if (isSkippedCredential(rel)) continue;
+      const buffer = fs.readFileSync(abs);
+      if (buffer.includes(0)) {
+        if (buffer.includes(Buffer.from(BROWSER_PREFIX)))
+          files.set(rel, `${BROWSER_PREFIX}\n`);
+        continue;
+      }
+      files.set(rel, buffer.toString('utf8'));
+    }
+  };
+  walk(root);
+  workspaceFiles = files;
+  return files;
+}
+
+function allowlistedDocMap(): Map<string, string> {
+  const byPath = new Map<string, string[]>();
+  for (const entry of DOC_SAFETY_ALLOWLIST) {
+    const lines = byPath.get(entry.path) ?? [];
+    while (lines.length < entry.lineNumber) lines.push('');
+    lines[entry.lineNumber - 1] = entry.line;
+    byPath.set(entry.path, lines);
+  }
+  return new Map(
+    [...byPath].map(([filePath, lines]) => [filePath, lines.join('\n')]),
+  );
+}
+
+function scannerPath(): string {
+  return path.resolve('tools/scan-dist-secrets.mjs');
+}
+
+function runScanner(dir?: string, cwd = process.cwd()) {
+  const args = [scannerPath()];
+  if (dir !== undefined) args.push(dir);
+  return spawnSync(process.execPath, args, { encoding: 'utf8', cwd });
+}
+
+function makeTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'vss-secret-scan-'));
+}
+
+void test('allowlist text matches the verified lines on disk', () => {
+  for (const entry of DOC_SAFETY_ALLOWLIST) {
+    const lines = fs.readFileSync(entry.path, 'utf8').split(/\r?\n/);
+    assert.equal(
+      lines[entry.lineNumber - 1],
+      entry.line,
+      `${entry.path}:${entry.lineNumber}`,
+    );
+  }
+});
+
+void test('workspace browser-prefix hits are exactly the four verified lines', () => {
+  const hits: string[] = [];
+  for (const [filePath, content] of loadWorkspaceFiles()) {
+    const lines = content.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index++) {
+      if ((lines[index] ?? '').includes(BROWSER_PREFIX))
+        hits.push(`${filePath}:${index + 1}`);
+    }
+  }
+  hits.sort();
+  assert.deepEqual(hits, [
+    'DEPLOY.md:136',
+    'DEPLOY.md:259',
+    'DEPLOY.md:285',
+    'README.md:23',
+  ]);
+});
+
+void test('new hygiene files do not embed contiguous secret markers', () => {
+  for (const filePath of [
+    'tests/secret-hygiene.test.ts',
+    'tools/scan-dist-secrets.mjs',
+  ]) {
+    const text = fs.readFileSync(filePath, 'utf8');
+    assert.equal(text.includes(BROWSER_PREFIX), false, filePath);
+    assert.equal(text.includes(VENDOR_HOST), false, filePath);
+    assert.equal(text.includes(KEY_NAME), false, filePath);
+    assert.equal(SK_PATTERN.test(text), false, filePath);
+  }
+});
+
+void test('verified documentation safety statements pass', () => {
+  assert.deepEqual(checkSecretHygiene(allowlistedDocMap()), []);
+});
+
+void test('a documentation line that is not the verified statement fails', () => {
+  const files = allowlistedDocMap();
+  const lines = (files.get('README.md') ?? '').split('\n');
+  lines[22] = `${lines[22] ?? ''} ${BROWSER_PREFIX}OPENAI_${'API_KEY'}=present`;
+  files.set('README.md', lines.join('\n'));
+  const findings = checkSecretHygiene(files);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.path === 'README.md' &&
+        finding.line === 23 &&
+        finding.rule === 'next-public-prefix',
+    ),
+  );
+});
+
+void test('an unknown markdown mention of the browser prefix fails', () => {
+  const files = new Map([
+    ['docs/notes.md', `Do not set ${BROWSER_PREFIX}SOMETHING.\n`],
+  ]);
+  const findings = checkSecretHygiene(files);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0]?.rule, 'next-public-prefix');
+  assert.equal(findings[0]?.path, 'docs/notes.md');
+});
+
+void test('browser prefix on a key in code fails and the name is not echoed', () => {
+  const secretName = `${BROWSER_PREFIX}OPENAI_${'API_KEY'}`;
+  const files = new Map([
+    ['lib/config.ts', `export const key = process.env.${secretName};\n`],
+  ]);
+  const findings = checkSecretHygiene(files);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.rule === 'next-public-prefix' &&
+        finding.path === 'lib/config.ts',
+    ),
+  );
+  assert.equal(JSON.stringify(findings).includes(secretName), false);
+});
+
+void test('a browser fetch to the vendor host fails and the url is not echoed', () => {
+  const url = `https://${VENDOR_HOST}/v1/images/generations`;
+  const files = new Map([
+    ['components/Bad.tsx', `fetch(${JSON.stringify(url)});\n`],
+  ]);
+  const findings = checkSecretHygiene(files);
+  assert.ok(findings.some((finding) => finding.rule === 'network-vendor'));
+  assert.ok(findings.some((finding) => finding.rule === 'browser-vendor-host'));
+  assert.equal(JSON.stringify(findings).includes(url), false);
+});
+
+void test('an sk- pattern in an example env file fails and is not echoed', () => {
+  const secret = syntheticKey();
+  const files = new Map([['.env.example', `${KEY_NAME}=${secret}\n`]]);
+  const findings = checkSecretHygiene(files);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.rule === 'example-sk-pattern' &&
+        finding.path === '.env.example',
+    ),
+  );
+  assert.equal(JSON.stringify(findings).includes(secret), false);
+});
+
+void test('example env placeholders without an sk- pattern pass', () => {
+  const files = new Map<string, string>([
+    ['.env.example', fs.readFileSync('.env.example', 'utf8')],
+    ['.dev.vars.example', fs.readFileSync('.dev.vars.example', 'utf8')],
+  ]);
+  assert.deepEqual(checkSecretHygiene(files), []);
+});
+
+void test('gitignore must list env files and dist', () => {
+  const findings = checkSecretHygiene(
+    new Map([['.gitignore', '.env\n.dev.vars.*\n']]),
+  );
+  const details = findings.map((finding) => finding.detail);
+  assert.ok(details.some((detail) => detail.includes('.env*')));
+  assert.ok(
+    details.some(
+      (detail) =>
+        detail.includes('.dev.vars') && !detail.includes('.dev.vars.*'),
+    ),
+  );
+  assert.ok(details.some((detail) => detail.includes('/dist/')));
+});
+
+void test('a complete gitignore passes', () => {
+  assert.deepEqual(
+    checkSecretHygiene(new Map([['.gitignore', '.env*\n/dist/\n.dev.vars\n']])),
+    [],
+  );
+});
+
+void test('same-origin /api fetch passes', () => {
+  const files = new Map([
+    ['app/page.tsx', "fetch('/api/status');\nfetch('/api/generate');\n"],
+  ]);
+  assert.deepEqual(checkSecretHygiene(files), []);
+});
+
+void test('verified same-origin /api and /model reads pass', () => {
+  const files = new Map<string, string>([
+    ['app/page.tsx', fs.readFileSync('app/page.tsx', 'utf8')],
+    [
+      'components/studio/scene-engine.ts',
+      fs.readFileSync('components/studio/scene-engine.ts', 'utf8'),
+    ],
+    ['lib/vehicle-assets.ts', fs.readFileSync('lib/vehicle-assets.ts', 'utf8')],
+  ]);
+  assert.deepEqual(checkSecretHygiene(files), []);
+});
+
+void test('loadAsync of an external URL fails', () => {
+  const files = new Map([
+    [
+      'components/studio/scene-engine.ts',
+      "new GLTFLoader().loadAsync('https://example.com/model.glb');\n",
+    ],
+  ]);
+  const findings = checkSecretHygiene(files);
+  assert.ok(findings.some((finding) => finding.rule === 'network-external'));
+});
+
+void test('a fetch target that is not a static string fails closed', () => {
+  const findings = checkSecretHygiene(
+    new Map([['app/page.tsx', "fetch('/api/' + 'status');\n"]]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a protocol-relative fetch fails', () => {
+  const findings = checkSecretHygiene(
+    new Map([['hooks/use-remote.ts', "fetch('//cdn.example/lib.js');\n"]]),
+  );
+  assert.ok(
+    findings.some((finding) => finding.rule === 'network-protocol-relative'),
+  );
+});
+
+void test('a same-origin path outside /api and /model fails', () => {
+  const findings = checkSecretHygiene(
+    new Map([['app/page.tsx', "fetch('/stickers/coast-club.png');\n"]]),
+  );
+  assert.ok(
+    findings.some((finding) => finding.rule === 'network-not-same-origin'),
+  );
+});
+
+void test('an unresolved fetch identifier fails', () => {
+  const findings = checkSecretHygiene(
+    new Map([['components/Bad.tsx', 'fetch(NOT_A_CONSTANT);\n']]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('the server key name in a browser-reachable file fails', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      ['hooks/use-mobile.ts', `const name = ${JSON.stringify(KEY_NAME)};\n`],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'browser-key-name'));
+});
+
+void test('server generation module is outside the browser scan', () => {
+  const files = new Map([
+    ['lib/generation.ts', fs.readFileSync('lib/generation.ts', 'utf8')],
+  ]);
+  assert.deepEqual(checkSecretHygiene(files), []);
+});
+
+void test('workspace source passes the clarified secret hygiene rules', () => {
+  assert.deepEqual(checkSecretHygiene(loadWorkspaceFiles()), []);
+});
+
+void test('dist scanner source pins the default client directory', () => {
+  const source = fs.readFileSync('tools/scan-dist-secrets.mjs', 'utf8');
+  assert.match(source, /const DEFAULT_CLIENT_DIR = 'dist\/client'/);
+});
+
+void test('dist scanner defaults to dist/client relative to the working directory', () => {
+  const dir = makeTempDir();
+  try {
+    const result = runScanner(undefined, dir);
+    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    assert.notEqual(result.status, 0);
+    assert.match(output, /dist\/client/);
+    assert.match(output, /does not exist/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+void test('dist scanner fails when the client directory is missing', () => {
+  const missing = path.join(
+    os.tmpdir(),
+    `vss-missing-${process.pid}-${Date.now()}`,
+  );
+  const result = runScanner(missing);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr ?? '', /does not exist/);
+});
+
+void test('dist scanner fails when the client directory has no files', () => {
+  const dir = makeTempDir();
+  try {
+    fs.mkdirSync(path.join(dir, 'nested'));
+    const result = runScanner(dir);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr ?? '', /empty/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+void test('dist scanner passes a client directory with no secret markers', () => {
+  const dir = makeTempDir();
+  try {
+    fs.writeFileSync(path.join(dir, 'app.js'), 'console.log("ok");\n');
+    const result = runScanner(dir);
+    assert.equal(result.status, 0, result.stderr ?? '');
+    assert.match(
+      result.stdout ?? '',
+      /secret scan passed: 1 file\(s\), 0 hit\(s\)/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+void test('dist scanner reports an sk- pattern without printing it', () => {
+  const secret = syntheticKey();
+  const dir = makeTempDir();
+  try {
+    fs.writeFileSync(
+      path.join(dir, 'chunk.js'),
+      `const leaked = ${JSON.stringify(secret)};\n`,
+    );
+    const result = runScanner(dir);
+    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    assert.notEqual(result.status, 0);
+    assert.match(output, /secret scan hit: sk- chunk\.js:1/);
+    assert.equal(output.includes(secret), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+void test('dist scanner reports the server key name and the vendor host', () => {
+  const dir = makeTempDir();
+  try {
+    fs.writeFileSync(
+      path.join(dir, 'key.js'),
+      `const name = ${JSON.stringify(KEY_NAME)};\n`,
+    );
+    fs.writeFileSync(
+      path.join(dir, 'host.js'),
+      `const url = ${JSON.stringify(`https://${VENDOR_HOST}/v1`)};\n`,
+    );
+    const result = runScanner(dir);
+    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    assert.notEqual(result.status, 0);
+    assert.match(output, new RegExp(`secret scan hit: ${KEY_NAME} key\\.js:1`));
+    assert.match(
+      output,
+      new RegExp(
+        `secret scan hit: ${VENDOR_HOST.replaceAll('.', '\\.')} host\\.js:1`,
+      ),
+    );
+    assert.match(output, /secret scan failed: 2 hit\(s\)/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
