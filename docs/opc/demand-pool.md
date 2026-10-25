@@ -82,7 +82,7 @@
 
 ### 2026-10-24（第四轮：全社媒拉花雷达第二轮，共 8 条）
 
-> 采集说明：mxgarage-decal-social-radar 2026-10-24（周六）轮。Facebook 兴趣群特关首次用 facebook-cli 真实执行：搜出 5 个拉花/美容相关群（Vehicle Wrap Design 2.2 万、Wrap & Print Collective 1 万、Metro Restyling Vinyl Wraps Community 5 千、Car Wrapping 3.8 万、Commercial Wrap Design Masterminds 2 千），但群帖检索均返回空——details 显示这些群均为"非公开小组"（帖子仅成员可见），账号非成员故读不到帖子，已按口径如实标注，未申请加群。群线索清单新增上述 5 群。Facebook 痛点仍靠 social.search 公开索引补足（拿到 1 个 FB 公开群组原声帖 + 多个 FB/IG reels）。X 站内无直接索引结果，仅经 Torque News 媒体转述拿到 Cybertruck 车主 FB 群组原声（X 个人账号原文未直接抓到）；微信朋友圈仍为私域盲区，公众号/视频号本轮无拉花相关索引；抖音/小红书站内仍被登录墙/反爬挡住，中文搜索引擎本轮只返回商家软文（凹陷修复、贴膜店广告），未入库。YouTube 本轮拿到施工方视角的翻车归因视频（不计用户原声）。本轮 8 条全部去重，无 URL 与 P1–P37 重复（IG @jmeteo 2026-10-03 帖与 P28 同 URL，已剔除；P25 同作者新帖与 P25 同 URL，已剔除）。
+> 采集说明：mxgarage-decal-social-radar 2026-10-24（周六）轮。Facebook 兴趣群特关首次用 facebook-cli 真实执行：搜出 5 个拉花/美容相关群（Vehicle Wrap Design 2.2 万、Wrap & Print Collective 1 万、Metro Restyling Vinyl Wraps Community 5 千、Car Wrapping 3.8 万、Commercial Wrap Design Masterminds 2 千），但群帖检索均返回空——details 显示这些群均为"非公开小组"（帖子仅成员可见），账号非成员故读不到帖子，已按口径如实标注，未申请加群。群线索清单新增上述 5 群。Facebook 痛点仍靠 social.search 公开索引补足（拿到 1 个 FB 公开群组原声帖 + 多个 FB/IG reels）。X 站内无直接索引结果，仅经 Torque News 媒体转述拿到车主 FB 群组原声（X 个人账号原文未直接抓到）；微信朋友圈仍为私域盲区，公众号/视频号本轮无拉花相关索引；抖音/小红书站内仍被登录墙/反爬挡住，中文搜索引擎本轮只返回商家软文（凹陷修复、贴膜店广告），未入库。YouTube 本轮拿到施工方视角的翻车归因视频（不计用户原声）。本轮 8 条全部去重，无 URL 与 P1–P37 重复（IG @jmeteo 2026-10-03 帖与 P28 同 URL，已剔除；P25 同作者新帖与 P25 同 URL，已剔除）。
 
 | # | 平台 | 原帖 | 痛点摘要 | 相关性 |
 |---|------|------|----------|--------|
