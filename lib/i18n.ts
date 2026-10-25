@@ -10,6 +10,7 @@ export type Lang = 'en' | 'zh';
 const en = {
   'header.resetAll': 'Reset all',
   'page.heroTitle': 'Put your idea on the van.',
+  'page.bodyLabLink': 'Parametric body',
   'page.heroSub':
     'One description, four decals. See the real effect on your campervan.',
   'page.promptLabel': 'Decal description',
@@ -382,6 +383,7 @@ export type StringKey = keyof typeof en;
 const zh: Record<StringKey, string> = {
   'header.resetAll': '收起全部',
   'page.heroTitle': '让灵感，贴上车身。',
+  'page.bodyLabLink': '参数化车体',
   'page.heroSub': '一句描述，四款贴纸。在你的房车上，看到真正的效果。',
   'page.promptLabel': '贴纸描述',
   'page.promptSectionToggle': '写提示词生成拉花',

@@ -689,6 +689,9 @@ export default function Home() {
             <span className="tiny-line" />
             DESIGNED TO GO PLACES
             <ArrowUpRight size={15} />
+            <Link className="body-lab-link" href="/body-lab">
+              {t(lang, 'page.bodyLabLink')}
+            </Link>
           </div>
         </aside>
         <section

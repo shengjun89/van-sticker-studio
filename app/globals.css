@@ -262,6 +262,14 @@ a {
 .panel-footer svg {
   margin-left: auto;
 }
+.body-lab-link {
+  color: #a3a8ad;
+  text-decoration: none;
+}
+.body-lab-link:hover {
+  color: #5a5f66;
+  text-decoration: underline;
+}
 .tiny-line {
   width: 20px;
   height: 1px;
