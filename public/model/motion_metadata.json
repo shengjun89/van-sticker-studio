@@ -1672,7 +1672,7 @@
   "triangles": 317920,
   "bytes": 15744936,
   "wiperIntervalSeconds": 5,
-  "glbSha256": "df4b144e410d3f2f7792e8ed931262622f83c3c8b897926d64ff42340d11a7cf",
+  "glbSha256": "532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb",
   "calibratedWipersPreservedFromSha256": "9559fb30548a3ab464fbb628d91f4e3ed39510eadf5a2ebefde8610f2aecd2aa",
   "frontBadgeCorrection": {
     "mountingX": -2.8378328447705576,
@@ -1778,5 +1778,19 @@
     "sha256": "df4b144e410d3f2f7792e8ed931262622f83c3c8b897926d64ff42340d11a7cf",
     "bytes": 15701336,
     "method": "中心拱段整体下移拉平（按实测中心线拱高逐 z 插值下压，带宽不变、法线逆转置修正）；其余 GLB 字节不变，JSON 仅 POSITION accessor min/max 变化。"
+  },
+  "r10Correction": {
+    "revision": "20261025-r10-roughness",
+    "sha256": "532f2a5555adc35676b0e04ea74e89f8282e4598efc9b621b678f41a833346bb",
+    "bytes": 15713212,
+    "method": "额头侧围顶线向两段弦线靠拢（下段斜率1.03、上段1.45、系数0.6-0.85）并钳制于驾驶舱顶；轮拱带抬高50mm；新增窗框、轮辋面、辐条与两侧眉线带环件；格栅弧线、雨刷、前杠、运动元数据数值字段未动。",
+    "foreheadPeakDeltaMeters": 0.146,
+    "archApexMeters": {
+      "before": 0.745,
+      "after": 0.79
+    },
+    "newMesh": "RV_Static_Trim_Rings",
+    "newMeshVerts": 384,
+    "newMeshTris": 340
   }
 }
