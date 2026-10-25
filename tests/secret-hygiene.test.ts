@@ -81,6 +81,7 @@ export const DOC_SAFETY_ALLOWLIST: readonly {
 export type HygieneRule =
   | 'next-public-prefix'
   | 'example-sk-pattern'
+  | 'credential-pattern'
   | 'browser-key-name'
   | 'browser-vendor-host'
   | 'network-vendor'
@@ -148,6 +149,10 @@ function isBrowserReachable(filePath: string): boolean {
 function isExampleEnv(filePath: string): boolean {
   const base = filePath.slice(filePath.lastIndexOf('/') + 1);
   return base === '.env.example' || base === '.dev.vars.example';
+}
+
+function isMarkdownDoc(filePath: string): boolean {
+  return filePath.endsWith('.md');
 }
 
 function isSkippedCredential(filePath: string): boolean {
@@ -278,6 +283,128 @@ function bindingsOf(
   return stored;
 }
 
+function bindingDeclares(name: ts.BindingName, text: string): boolean {
+  if (ts.isIdentifier(name)) return name.text === text;
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      if (bindingDeclares(element.name, text)) return true;
+    }
+  }
+  return false;
+}
+
+function statementListBinding(
+  statements: readonly ts.Statement[],
+  text: string,
+): ts.Expression | 'reject' | undefined {
+  let hit: ts.Expression | 'reject' | undefined;
+  let count = 0;
+  const take = (next: ts.Expression | 'reject') => {
+    count += 1;
+    hit = next;
+  };
+  for (const statement of statements) {
+    if (ts.isVariableStatement(statement)) {
+      const isConst =
+        (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
+      for (const declaration of statement.declarationList.declarations) {
+        if (!bindingDeclares(declaration.name, text)) continue;
+        if (
+          !isConst ||
+          !declaration.initializer ||
+          !ts.isIdentifier(declaration.name)
+        ) {
+          take('reject');
+        } else {
+          take(declaration.initializer);
+        }
+      }
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement)) &&
+      statement.name?.text === text
+    ) {
+      take('reject');
+    }
+  }
+  if (count === 0) return undefined;
+  if (count > 1) return 'reject';
+  return hit;
+}
+
+function functionNameText(node: ts.Node): string | undefined {
+  if (
+    (ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isMethodDeclaration(node) ||
+      ts.isGetAccessorDeclaration(node) ||
+      ts.isSetAccessorDeclaration(node)) &&
+    node.name &&
+    ts.isIdentifier(node.name)
+  ) {
+    return node.name.text;
+  }
+  return undefined;
+}
+
+function bindingInNode(
+  node: ts.Node,
+  text: string,
+): ts.Expression | 'reject' | undefined {
+  if (ts.isFunctionLike(node)) {
+    if (functionNameText(node) === text) return 'reject';
+    for (const param of node.parameters) {
+      if (bindingDeclares(param.name, text)) return 'reject';
+    }
+    return undefined;
+  }
+  if (ts.isCatchClause(node)) {
+    if (
+      node.variableDeclaration &&
+      bindingDeclares(node.variableDeclaration.name, text)
+    ) {
+      return 'reject';
+    }
+    return undefined;
+  }
+  if (
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node)
+  ) {
+    const initializer = node.initializer;
+    if (initializer && ts.isVariableDeclarationList(initializer)) {
+      for (const declaration of initializer.declarations) {
+        if (bindingDeclares(declaration.name, text)) return 'reject';
+      }
+    }
+    return undefined;
+  }
+  if (ts.isBlock(node) || ts.isModuleBlock(node)) {
+    return statementListBinding(node.statements, text);
+  }
+  if (ts.isCaseClause(node) || ts.isDefaultClause(node)) {
+    return statementListBinding(node.statements, text);
+  }
+  return undefined;
+}
+
+function nearestLocalBinding(
+  ident: ts.Identifier,
+  text: string,
+): ts.Expression | 'reject' | undefined {
+  if (!ident.parent) return 'reject';
+  let current: ts.Node | undefined = ident.parent;
+  while (current && !ts.isSourceFile(current)) {
+    const hit = bindingInNode(current, text);
+    if (hit !== undefined) return hit;
+    current = current.parent;
+  }
+  return undefined;
+}
+
 function resolveModuleSpecifier(
   fromFile: string,
   spec: string,
@@ -335,6 +462,7 @@ function resolveExpr(
   files: ReadonlyMap<string, string>,
   cache: Cache,
   stack: readonly string[],
+  resolving: readonly ts.Expression[] = [],
 ): { ok: true; value: string } | { ok: false } {
   const node = unwrap(expression);
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -343,16 +471,35 @@ function resolveExpr(
   if (ts.isTemplateExpression(node)) {
     let value = node.head.text;
     for (const span of node.templateSpans) {
-      const part = resolveExpr(span.expression, filePath, files, cache, stack);
+      const part = resolveExpr(
+        span.expression,
+        filePath,
+        files,
+        cache,
+        stack,
+        resolving,
+      );
       if (!part.ok) return part;
       value += part.value + span.literal.text;
     }
     return { ok: true, value };
   }
-  if (ts.isIdentifier(node))
+  if (ts.isIdentifier(node)) {
+    const local = nearestLocalBinding(node, node.text);
+    if (local === 'reject') return { ok: false };
+    if (local) {
+      if (resolving.includes(local)) return { ok: false };
+      return resolveExpr(local, filePath, files, cache, stack, [
+        ...resolving,
+        local,
+      ]);
+    }
     return resolveIdent(node.text, filePath, files, cache, stack);
+  }
   return { ok: false };
 }
+
+const SAME_ORIGIN_BASE = 'https://studio.invalid';
 
 function isAllowedSameOrigin(url: string): boolean {
   if (
@@ -363,7 +510,22 @@ function isAllowedSameOrigin(url: string): boolean {
   ) {
     return false;
   }
-  return url.startsWith('/api/') || url.startsWith('/model/');
+  let parsed: URL;
+  try {
+    parsed = new URL(url, SAME_ORIGIN_BASE);
+  } catch {
+    return false;
+  }
+  if (parsed.origin !== SAME_ORIGIN_BASE) return false;
+  const pathname = parsed.pathname;
+  if (
+    pathname.includes('\\') ||
+    pathname.includes('..') ||
+    pathname.includes('//')
+  ) {
+    return false;
+  }
+  return pathname.startsWith('/api/') || pathname.startsWith('/model/');
 }
 
 function classifyTarget(url: string): HygieneRule | null {
@@ -453,6 +615,18 @@ export function checkSecretHygiene(
           line: lineNumber,
           rule: 'example-sk-pattern',
           detail: 'example env file contains an sk- pattern',
+        });
+      }
+      if (
+        (isMarkdownDoc(filePath) || isBrowserReachable(filePath)) &&
+        lineText.search(SK_PATTERN) !== -1
+      ) {
+        findings.push({
+          path: filePath,
+          line: lineNumber,
+          rule: 'credential-pattern',
+          detail:
+            'credential pattern is checked separately from the wording allowlist',
         });
       }
     }
@@ -566,11 +740,40 @@ function makeTempDir(): string {
 void test('allowlist text matches the verified lines on disk', () => {
   for (const entry of DOC_SAFETY_ALLOWLIST) {
     const lines = fs.readFileSync(entry.path, 'utf8').split(/\r?\n/);
+    const same = (lines[entry.lineNumber - 1] ?? '') === entry.line;
     assert.equal(
-      lines[entry.lineNumber - 1],
-      entry.line,
-      `${entry.path}:${entry.lineNumber}`,
+      same,
+      true,
+      `${entry.path}:${entry.lineNumber} allowlist line drifted`,
     );
+  }
+});
+
+void test('allowlist drift failure output omits the synthetic sample', () => {
+  const secret = syntheticKey();
+  const dir = makeTempDir();
+  const file = path.join(dir, 'drift.mts');
+  const source = [
+    "import assert from 'node:assert/strict';",
+    "const secret = 'sk-' + 'synthetic' + 'EXAMPLE' + 'NOTAREAL' + 'KEY000000';",
+    "const actual = 'documented line ' + secret;",
+    "const expected = 'documented line';",
+    "assert.equal(actual === expected, true, 'README.md:23 allowlist line drifted');",
+    '',
+  ].join('\n');
+  fs.writeFileSync(file, source);
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['--experimental-strip-types', file],
+      { encoding: 'utf8' },
+    );
+    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    assert.notEqual(result.status, 0);
+    assert.equal(output.includes(secret), false);
+    assert.match(output, /README\.md:23/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -676,6 +879,54 @@ void test('an sk- pattern in an example env file fails and is not echoed', () =>
   assert.equal(JSON.stringify(findings).includes(secret), false);
 });
 
+void test('a synthetic key without the browser prefix fails in markdown', () => {
+  const secret = syntheticKey();
+  const files = new Map([
+    ['README.md', `Notes about the studio.\n${secret}\n`],
+    ['DEPLOY.md', `Deployment notes.\n${secret}\n`],
+    ['docs/notes.md', `Extra notes.\n${secret}\n`],
+  ]);
+  const findings = checkSecretHygiene(files);
+  for (const filePath of ['README.md', 'DEPLOY.md', 'docs/notes.md']) {
+    assert.ok(
+      findings.some(
+        (finding) =>
+          finding.path === filePath && finding.rule === 'credential-pattern',
+      ),
+      filePath,
+    );
+  }
+  assert.equal(
+    findings.some((finding) => finding.rule === 'next-public-prefix'),
+    false,
+  );
+  assert.equal(JSON.stringify(findings).includes(secret), false);
+});
+
+void test('a synthetic key hardcoded in browser code fails and is not echoed', () => {
+  const secret = syntheticKey();
+  const files = new Map([
+    ['components/Bad.tsx', `export const token = ${JSON.stringify(secret)};\n`],
+    ['app/page.tsx', `const token = ${JSON.stringify(secret)};\n`],
+  ]);
+  const findings = checkSecretHygiene(files);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.path === 'components/Bad.tsx' &&
+        finding.rule === 'credential-pattern',
+    ),
+  );
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.path === 'app/page.tsx' &&
+        finding.rule === 'credential-pattern',
+    ),
+  );
+  assert.equal(JSON.stringify(findings).includes(secret), false);
+});
+
 void test('example env placeholders without an sk- pattern pass', () => {
   const files = new Map<string, string>([
     ['.env.example', fs.readFileSync('.env.example', 'utf8')],
@@ -766,6 +1017,95 @@ void test('an unresolved fetch identifier fails', () => {
     new Map([['components/Bad.tsx', 'fetch(NOT_A_CONSTANT);\n']]),
   );
   assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a parameter shadows a safe module fetch target', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'app/page.tsx',
+        [
+          "const target = '/api/status';",
+          'function send(target: string) {',
+          '  return fetch(target);',
+          '}',
+          "send('https://example.com/hook');",
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('a block binding shadows a safe module fetch target', () => {
+  const findings = checkSecretHygiene(
+    new Map([
+      [
+        'components/studio/scene-engine.ts',
+        [
+          "const target = '/api/status';",
+          'export function send() {',
+          '  const target = "https://example.com/hook";',
+          '  return fetch(target);',
+          '}',
+          '',
+        ].join('\n'),
+      ],
+    ]),
+  );
+  assert.ok(findings.some((finding) => finding.rule === 'network-external'));
+});
+
+void test('an unshadowed imported constant still resolves inside a function', () => {
+  const files = new Map<string, string>([
+    ['lib/vehicle-assets.ts', fs.readFileSync('lib/vehicle-assets.ts', 'utf8')],
+    [
+      'components/studio/scene-engine.ts',
+      [
+        "import { VEHICLE_MOTION_URL } from '../../lib/vehicle-assets.ts';",
+        'export function load() {',
+        '  return fetch(VEHICLE_MOTION_URL);',
+        '}',
+        '',
+      ].join('\n'),
+    ],
+  ]);
+  assert.deepEqual(checkSecretHygiene(files), []);
+});
+
+void test('a parameter shadowing an imported constant fails closed', () => {
+  const files = new Map<string, string>([
+    ['lib/vehicle-assets.ts', fs.readFileSync('lib/vehicle-assets.ts', 'utf8')],
+    [
+      'components/studio/scene-engine.ts',
+      [
+        "import { VEHICLE_MOTION_URL } from '../../lib/vehicle-assets.ts';",
+        'export function load(VEHICLE_MOTION_URL: string) {',
+        '  return fetch(VEHICLE_MOTION_URL);',
+        '}',
+        '',
+      ].join('\n'),
+    ],
+  ]);
+  const findings = checkSecretHygiene(files);
+  assert.ok(findings.some((finding) => finding.rule === 'network-unresolved'));
+});
+
+void test('encoded dot-segment traversal is not an allowed same-origin path', () => {
+  const segments = ['%2e%2e', '.%2e', '%2e.'];
+  for (const prefix of ['/api/', '/model/']) {
+    for (const segment of segments) {
+      const url = `${prefix}${segment}/private`;
+      const findings = checkSecretHygiene(
+        new Map([['app/page.tsx', `fetch(${JSON.stringify(url)});\n`]]),
+      );
+      assert.ok(
+        findings.some((finding) => finding.rule === 'network-not-same-origin'),
+        url,
+      );
+    }
+  }
 });
 
 void test('the server key name in a browser-reachable file fails', () => {
