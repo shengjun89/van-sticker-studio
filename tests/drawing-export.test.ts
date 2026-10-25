@@ -308,7 +308,12 @@ void test('a successful export forces a clean drawing and then restores the stud
   const expected = new THREE.Vector3(...viewById('entry').direction).normalize();
   assert.ok(aim.dot(expected) > 0.999);
   assert.equal(during.framed, true);
-  assert.deepEqual(harness.order, ['scene', 'silhouette']);
+  assert.deepEqual(harness.order, [
+    'scene',
+    'silhouette',
+    'scene',
+    'silhouette',
+  ]);
   assert.equal(
     file.filename,
     `drawing-entry-${VEHICLE_ASSET_REVISION}.png`,
@@ -386,16 +391,105 @@ void test('consecutive exports restore the studio after each view', () => {
   const second = harness.engine.exportDrawing('rear-three-quarter');
   assert.deepEqual(harness.snapshot(), before);
   assert.notEqual(first.filename, second.filename);
-  assert.ok(
-    aims[0].dot(
-      new THREE.Vector3(...viewById('front-three-quarter').direction).normalize(),
-    ) > 0.999,
-  );
-  assert.ok(
-    aims[1].dot(
-      new THREE.Vector3(...viewById('rear-three-quarter').direction).normalize(),
-    ) > 0.999,
-  );
+  assert.equal(aims.length, 4);
+  const frontAim = new THREE.Vector3(
+    ...viewById('front-three-quarter').direction,
+  ).normalize();
+  const rearAim = new THREE.Vector3(
+    ...viewById('rear-three-quarter').direction,
+  ).normalize();
+  assert.ok(aims[1].dot(frontAim) > 0.999);
+  assert.ok(aims[3].dot(rearAim) > 0.999);
   assert.equal(harness.engine.camera.aspect, before.aspect);
   assert.deepEqual(harness.limits(), before.limits);
+});
+
+/** Image-space frame of a mesh's position bounds. Y grows downward, matching PNG rows. */
+function projectedBodyFrame(camera: THREE.PerspectiveCamera, mesh: THREE.Mesh) {
+  const position = mesh.geometry.getAttribute('position');
+  if (!(position instanceof THREE.BufferAttribute))
+    throw new Error('expected a position buffer');
+  const world = new THREE.Box3()
+    .setFromBufferAttribute(position)
+    .applyMatrix4(mesh.matrixWorld);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const x of [world.min.x, world.max.x]) {
+    for (const y of [world.min.y, world.max.y]) {
+      for (const z of [world.min.z, world.max.z]) {
+        const projected = new THREE.Vector3(x, y, z).project(camera);
+        assert.ok(
+          projected.z > -1 && projected.z < 1,
+          `body corner is outside the clip range (${projected.toArray().join(',')})`,
+        );
+        assert.ok(
+          Math.abs(projected.x) <= 1 && Math.abs(projected.y) <= 1,
+          `body corner is cropped (${projected.toArray().join(',')})`,
+        );
+        minX = Math.min(minX, projected.x);
+        minY = Math.min(minY, projected.y);
+        maxX = Math.max(maxX, projected.x);
+        maxY = Math.max(maxY, projected.y);
+      }
+    }
+  }
+  const width = (maxX - minX) / 2;
+  const height = (maxY - minY) / 2;
+  const ndcCenterX = (minX + maxX) / 2;
+  const ndcCenterY = (minY + maxY) / 2;
+  return {
+    width,
+    height,
+    long: Math.max(width, height),
+    centerX: ndcCenterX / 2 + 0.5,
+    centerY: 0.5 - ndcCenterY / 2,
+  };
+}
+
+void test('export framing ignores an inflated morph bounding box and fills the sheet', () => {
+  const body = new THREE.Mesh(new THREE.BoxGeometry(5.8, 2.9, 3.4));
+  body.position.set(0.05, 1.45, -0.3);
+  const wiper = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.02));
+  wiper.position.set(-2.1, 1.7, 0.1);
+  wiper.geometry.computeBoundingBox();
+  // three r180 computeBoundingBox adds every relative morph box onto the box it
+  // has already expanded. Ninety-six wiper poses become a tens-of-metres box
+  // around a blade that is still parked on the glass.
+  wiper.geometry.boundingBox!.min.set(-2.4, 1.4, -0.6);
+  wiper.geometry.boundingBox!.max.set(23.5, 26.2, 56.6);
+  const root = new THREE.Group();
+  root.add(body, wiper);
+  root.updateMatrixWorld(true);
+  const harness = exportHarness({ root });
+  const frames: ReturnType<typeof projectedBodyFrame>[] = [];
+  const renderer = (
+    harness.engine as unknown as { renderer: { render: () => void } }
+  ).renderer;
+  const originalRender = renderer.render;
+  renderer.render = () => {
+    originalRender();
+    frames.push(projectedBodyFrame(harness.engine.camera, body));
+  };
+  for (const id of [
+    'entry',
+    'front-three-quarter',
+    'rear-three-quarter',
+    'front',
+    'rear',
+  ])
+    harness.engine.exportDrawing(id);
+  assert.equal(frames.length, 10);
+  for (const frame of frames) {
+    assert.ok(
+      frame.long >= 0.7 && frame.long <= 0.9,
+      `visible body long edge ${frame.long} is outside 70–90% (${JSON.stringify(frame)})`,
+    );
+    assert.ok(
+      Math.abs(frame.centerX - 0.5) <= 0.05 &&
+        Math.abs(frame.centerY - 0.5) <= 0.05,
+      `visible body is off center (${JSON.stringify(frame)})`,
+    );
+  }
 });

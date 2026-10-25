@@ -612,6 +612,11 @@ export class SceneEngine {
       this.camera.aspect = DRAWING_EXPORT_PX.width / DRAWING_EXPORT_PX.height;
       this.camera.updateProjectionMatrix();
       this.placeExportCamera(view.direction);
+      // The geometric fit includes occluded corners. A second pass recenters
+      // the ink that is actually on the sheet.
+      this.renderer.render(this.scene, this.camera);
+      this.silhouette.render(this.renderer, this.scene, this.camera, this.root);
+      this.refineExportFrame();
       this.renderer.render(this.scene, this.camera);
       this.silhouette.render(this.renderer, this.scene, this.camera, this.root);
       return { dataUrl: this.captureExportPng(), filename };
@@ -638,7 +643,9 @@ export class SceneEngine {
     if (!this.root) throw new Error('model-not-ready');
     const aim = new THREE.Vector3(...direction).normalize();
     if (aim.lengthSq() < 1e-8) throw new Error('unknown-drawing-view');
-    const box = new THREE.Box3().setFromObject(this.root);
+    // geometry.boundingBox on the wiper rubber compounds every relative morph
+    // pose (three r180). Precise bounds follow the vertices that are drawn.
+    const box = new THREE.Box3().setFromObject(this.root, true);
     if (box.isEmpty()) throw new Error('model-not-ready');
     const center = box.getCenter(new THREE.Vector3());
     const sphere = box.getBoundingSphere(new THREE.Sphere());
@@ -654,35 +661,141 @@ export class SceneEngine {
     this.camera.near = Math.max(0.01, sphere.radius / 1000);
     this.camera.far = Math.max(sphere.radius * 40, 10);
     this.camera.updateProjectionMatrix();
-    const fits = (distance: number) => {
-      this.camera.position.copy(center).addScaledVector(aim, distance);
-      this.controls.target.copy(center);
-      this.camera.lookAt(center);
-      this.camera.updateMatrixWorld();
-      return corners.every((corner) => {
-        const projected = corner.clone().project(this.camera);
-        return (
-          projected.z < 1 &&
-          projected.z > -1 &&
-          Math.abs(projected.x) <= DRAWING_EXPORT_FIT &&
-          Math.abs(projected.y) <= DRAWING_EXPORT_FIT
-        );
-      });
+    const focus = center.clone();
+    const projected = new THREE.Vector3();
+    const measure = () => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      let inside = true;
+      for (const corner of corners) {
+        projected.copy(corner).project(this.camera);
+        if (!(projected.z > -1 && projected.z < 1)) inside = false;
+        minX = Math.min(minX, projected.x);
+        minY = Math.min(minY, projected.y);
+        maxX = Math.max(maxX, projected.x);
+        maxY = Math.max(maxY, projected.y);
+      }
+      return { minX, minY, maxX, maxY, inside };
     };
-    let low = Math.max(this.camera.near * 2, sphere.radius * 0.05);
-    let high =
-      (sphere.radius / Math.sin(limiting / 2)) * (1 / DRAWING_EXPORT_FIT) * 1.5;
-    if (!fits(high)) {
-      this.camera.far = high + sphere.radius * 8;
-      this.camera.updateProjectionMatrix();
+    const place = (distance: number) => {
+      this.camera.position.copy(focus).addScaledVector(aim, distance);
+      this.controls.target.copy(focus);
+      this.camera.lookAt(focus);
+      this.camera.updateMatrixWorld();
+    };
+    const withinFit = (frame: ReturnType<typeof measure>) =>
+      frame.inside &&
+      Math.max(
+        Math.abs(frame.minX),
+        Math.abs(frame.maxX),
+        Math.abs(frame.minY),
+        Math.abs(frame.maxY),
+      ) <= DRAWING_EXPORT_FIT;
+    const fits = (distance: number) => {
+      place(distance);
+      return withinFit(measure());
+    };
+    const solveDistance = () => {
+      let low = Math.max(this.camera.near * 2, sphere.radius * 0.05);
+      let high =
+        (sphere.radius / Math.sin(limiting / 2)) *
+        (1 / DRAWING_EXPORT_FIT) *
+        1.5;
+      if (!fits(high)) {
+        this.camera.far = high + sphere.radius * 8;
+        this.camera.updateProjectionMatrix();
+      }
+      if (!fits(high)) throw new Error('export-fit-failed');
+      for (let step = 0; step < 24; step += 1) {
+        const mid = (low + high) / 2;
+        if (fits(mid)) high = mid;
+        else low = mid;
+      }
+      place(high);
+      return high;
+    };
+    let distance = solveDistance();
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    for (let step = 0; step < 6; step += 1) {
+      const frame = measure();
+      const shiftX = (frame.minX + frame.maxX) / 2;
+      const shiftY = (frame.minY + frame.maxY) / 2;
+      if (Math.abs(shiftX) < 0.004 && Math.abs(shiftY) < 0.004) break;
+      const halfH = distance * Math.tan(vFov / 2);
+      const halfW = halfH * this.camera.aspect;
+      right.setFromMatrixColumn(this.camera.matrixWorld, 0);
+      up.setFromMatrixColumn(this.camera.matrixWorld, 1);
+      focus.addScaledVector(right, shiftX * halfW);
+      focus.addScaledVector(up, shiftY * halfH);
+      distance = solveDistance();
     }
-    if (!fits(high)) throw new Error('export-fit-failed');
-    for (let step = 0; step < 24; step += 1) {
-      const mid = (low + high) / 2;
-      if (fits(mid)) high = mid;
-      else low = mid;
+  }
+  /** Pan and dolly so the drawn ink, not occluded bounds, sits in the sheet. */
+  private refineExportFrame() {
+    const width = DRAWING_EXPORT_PX.width;
+    const height = DRAWING_EXPORT_PX.height;
+    const gl = this.renderer.getContext();
+    if (!gl || typeof document === 'undefined') return;
+    const pixels = new Uint8Array(width * height * 4);
+    try {
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    } catch {
+      return;
     }
-    fits(high);
+    let minX: number = width;
+    let minY: number = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let py = 0; py < height; py += 1) {
+      const y = height - 1 - py;
+      for (let x = 0; x < width; x += 1) {
+        const index = (py * width + x) * 4;
+        const delta = Math.max(
+          Math.abs(pixels[index] - 241),
+          Math.abs(pixels[index + 1] - 238),
+          Math.abs(pixels[index + 2] - 228),
+        );
+        if (delta <= 8) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (maxX < minX) return;
+    const centerX = (minX + maxX) / 2 / width;
+    const centerY = (minY + maxY) / 2 / height;
+    const longFrac = Math.max(
+      (maxX - minX + 1) / width,
+      (maxY - minY + 1) / height,
+    );
+    if (longFrac < 0.05) return;
+    const aim = new THREE.Vector3().subVectors(
+      this.camera.position,
+      this.controls.target,
+    );
+    const distance = aim.length();
+    if (distance < 1e-4) return;
+    aim.multiplyScalar(1 / distance);
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const halfH = distance * Math.tan(vFov / 2);
+    const halfW = halfH * this.camera.aspect;
+    const right = new THREE.Vector3().setFromMatrixColumn(
+      this.camera.matrixWorld,
+      0,
+    );
+    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const focus = this.controls.target.clone();
+    // Distance stays put: dollying from the ink box cropped the near edge.
+    focus.addScaledVector(right, (centerX - 0.5) * 2 * halfW);
+    focus.addScaledVector(up, (0.5 - centerY) * 2 * halfH);
+    this.camera.position.copy(focus).addScaledVector(aim, distance);
+    this.controls.target.copy(focus);
+    this.camera.lookAt(focus);
+    this.camera.updateMatrixWorld();
   }
   private captureExportPng() {
     const width = DRAWING_EXPORT_PX.width;

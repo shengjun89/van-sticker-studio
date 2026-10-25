@@ -6,8 +6,11 @@ import type { StringKey } from './i18n.ts';
  */
 export const DRAWING_EXPORT_PX = { width: 2048, height: 1536 } as const;
 
-/** Largest NDC half-extent the fitted vehicle may occupy on the export sheet. */
-export const DRAWING_EXPORT_FIT = 0.9;
+/**
+ * Largest NDC half-extent of the fitted visible-vertex bounds.
+ * Drawn ink sits inside that box, so its long edge is smaller than this cap.
+ */
+export const DRAWING_EXPORT_FIT = 0.88;
 
 export const STUDIO_VIEW_DIRECTIONS = {
   hero: [-0.83, 0.48, -1],
