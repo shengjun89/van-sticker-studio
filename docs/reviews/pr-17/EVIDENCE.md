@@ -6,7 +6,7 @@ Claim：`vss-17-lulu-20261025-01`。分支：`feature/17-generation-availability
 
 `/api/status` 在本地浏览器里被替换成内存响应，不代表线上密钥是否已配置（该项仍是 `[NEEDS CLARIFICATION]`）：
 
-1. 第一次响应 `{configured:false}`，拍 `disabled-en.png`、`disabled-zh.png`。按钮为禁用，提示词仍在。
+1. 第一次响应 `{configured:false}`，拍 `disabled-en.png`、`disabled-zh.png`。按钮为禁用，提示词仍在。英文文案是 “AI design is currently unavailable. Try a sample.”，中文文案是 “AI 设计暂不可用，先试试样例”。
 2. 窗口重新获得焦点后，下一次响应 `{configured:true}`，拍 `recovered-zh.png`、`recovered-en.png`。按钮变为可点，提示词仍是同一段。
 
 无头 Chrome 里的车身画面不是这次改动的对象。对比的是左侧生成区和状态文案。
