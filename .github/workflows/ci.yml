@@ -1,0 +1,28 @@
+# CI：门禁工作流（草稿，未推，等过目）
+#
+# 门禁与 AGENTS.md 一致：lint、test、tsc、build 四项全绿才可合并。
+# 触发：PR + 推 main（合并后主分支门禁再跑一次）。
+# 分支保护（要求本工作流全绿才能合并）需维护者在仓库 Settings 里开，agent 开不了。
+# 不在本次草稿内、后续 infra 项：PR 预览部署、视觉 harness、资产体积预算监控。
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # AGENTS.md 要求 Node >= 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run build
