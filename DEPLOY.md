@@ -53,7 +53,8 @@
   - 来源：owner 原有环境（创建该 Site 时的环境 / 原工作机），不在本仓库快照内，不从网络下载、不从他人处索取。
   - 放置路径：项目根目录下 `.openai/hosting.json`（与 `vite.config.ts` 中 `import ... from './.openai/hosting.json'` 相对应）。
   - 只确认文件存在且可被 JSON 解析、且包含 `d1`、`r2` 两个字段即可；本文档与仓库内任何文档都不记录、不展示其中的真实绑定值。
-  - 该文件属于 owner 私有身份文件，不要提交到公开仓库；如需纳入版本管理，先与 owner 确认仓库可见性。
+  - 该文件属于 owner 私有身份文件，不要提交到公开仓库；`.gitignore` 已列 `.openai/`。
+    注意：`.gitignore` 对已被跟踪的文件无效；是否从仓库取消跟踪（以及构建如何在没有该文件时运行）由 owner 决定，agent 不读取、不删除该文件。
 - [ ] **本地密钥文件（如需本地联调）**：按 `.dev.vars.example` / `.env.example` 说明，将示例复制为 `.dev.vars` 后再填值（见第 3 节）。`.dev.vars` 与 `.env*` 已被 `.gitignore` 忽略（`.dev.vars.example` 与 `.env.example` 除外），不要强制 `git add -f`。
 - [ ] **Cloudflare 账号（正式部署时）**：准备好 owner 本人的 Cloudflare 账号，且该账号对目标 Worker / Site 有部署权限。本文档不代登录、不代执行（见第 2 节）。
 - [ ] **OpenAI 密钥（配置时）**：准备好 owner 本人的 `OPENAI_API_KEY`，仅通过 server secret 渠道配置（见第 3 节），不经过聊天、文档或仓库传递明文。
@@ -125,6 +126,20 @@ npm start
 8. 部署后如修改了 secret，需重新部署或按控制台提示让新 secret 生效，并再次请求 `GET /api/status` 验证。
 
 > 注意：`wrangler deploy` 会把当前 `dist/` 产物发布到线上，属于不可在文档阶段预演的外向动作。执行人必须确认当前目录、当前账号与目标 Worker 三者无误后再运行。
+
+### 2.4 合并与上线分离（main 不自动上线）
+
+- 规则：合并进 main 只生成新版本，不切生产流量；生产上线只由维护者执行（constitution 第 1 条、AGENTS.md §13）。
+- Cloudflare Workers Builds 设置（owner 在控制台维护，agent 不改）：
+  - 生产分支 `main` 的 Deploy command 必须是 `npx wrangler versions upload`（只上传版本、生成 Version URL，不切流量），不得是 `npx wrangler deploy`。
+  - 非生产分支用 Preview 构建（PR 预览），不使用生产配置。
+  - 设置变更后，owner 在「维护者决策」issue 记录一次当前值与核对时间。
+- 合并后：合并者在验收台账写明本次版本 ID 与 Version URL（见 CONTRIBUTING.md §9）。注意 Version URL 使用该 Worker 的生产资源与 secret，验收时的生成请求会产生真实费用。
+- 上线（维护者执行，二选一）：
+  1. Cloudflare 控制台 → Workers & Pages → 目标 Worker → Deployments → 选中已验收的版本 → Deploy（100%）。
+  2. 命令行（owner 账号）：`npx wrangler versions deploy <version-id>@100%`。
+- 生产回滚（维护者执行）：同样方式把 100% 流量切回上一个已知正常版本；main 上的代码回滚另走 revert PR。
+- 上线后：维护者或其指定的 agent 在验收台账回填生产版本 ID 与上线时间，再按第 5 节清单复验。
 
 ---
 

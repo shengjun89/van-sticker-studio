@@ -43,3 +43,6 @@ next-env.d.ts
 !.env.example
 
 *.tsbuildinfo
+
+# owner-private site identity (must never be tracked; untracking the existing file is the owner's call)
+/.openai/
