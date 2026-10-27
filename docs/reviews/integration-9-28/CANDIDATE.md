@@ -143,3 +143,100 @@ production are unchanged. No deletion/reset/rebase/force push is part of rollbac
 
 Cost is unavailable in this environment (`[NEEDS CLARIFICATION]`); preparation
 started around 13:34 UTC. Final elapsed time is recorded in the PR handoff.
+
+## 2026-10-27: authorized CI scan evidence follow-up
+
+The preceding sections retain the original 2026-10-26 preparation record. This
+follow-up changes only the workflow restriction for the exact technical slice
+below; it does not retroactively scan or approve the old candidate.
+
+- Actual executor/task remains GPT, Codex cloud implementer,
+  `01a1786a-607f-71a4-a4e4-46c3f78f8014`, on the same branch and Draft PR #32.
+- Unique claim: `vss-integration-9-28-ci-scan-20261027`, confirmed by
+  [dot's bounded instruction](https://github.com/shengjun89/van-sticker-studio/pull/32#issuecomment-6436651269).
+  The previous implementation was completed and clean before this continuation.
+- Effective rule/spec and decision table: main
+  `5a9605ed0a45857996c48843b41977e9b30ad08b`; read `constitution.md`, `AGENTS.md`,
+  `CONTRIBUTING.md`, PR and task templates. AGENTS sections 7, 8, 10–16 apply;
+  section 14 rows for task refinement, claim/lock assignment and authorized
+  existing automatic previews/CI apply. dot decided this scope; credentials,
+  security permissions, fees and private configuration remain reserved.
+- Code parent/frozen pre-follow-up head:
+  `709afa4161fd9049c9651d59553ffb7299c516c1`. The branch is not rebased or merged
+  with newer main. Its existing workflow is identical to that effective main's
+  workflow, so no synchronization is technically necessary.
+- Exclusive write set: `.github/workflows/ci.yml` and this `CANDIDATE.md`.
+  Semantic lock: the existing gates job's post-build client scan and its evidence.
+  Original product/source blobs, scanner and tests must remain identical to the
+  pre-follow-up head; no trigger/runner/permission/secret/checkout/cache/production
+  setting changes, artifact uploads, storage or dependency additions.
+
+Preflight: local status was clean at the frozen candidate, one worktree, no other
+implementation/application process. Remote main and candidate matched the stated
+SHAs. Read-only inventory on 2026-10-27 around 07:57–07:59 UTC found all 10 open PRs,
+16 branches and 39 Actions runs; all runs were completed, with only the original
+candidate run `40332762253`/attempt 1. No competing workflow modification, duplicate
+candidate or scan run was found. The current claim and
+[#9 coordination record](https://github.com/shengjun89/van-sticker-studio/pull/9#issuecomment-6436663821)
+assign this addition to the original candidate executor. The audit helper was
+read-only, not another implementation or formal review. Environment `.agents` is
+empty and repository/main `.agents/skills` is absent; no local `SKILL.md` exists.
+
+### Exact CI addition and diagnostic boundary
+
+One step, `Scan client build for secret markers`, follows the existing
+`npm run build` in the same gates job. It explicitly uses Bash and:
+
+1. Rejects a missing/non-directory `dist` or `dist/client` and either path being
+   a symbolic link before traversal.
+2. Uses `find -P` to detect any symbolic link inside the client tree without
+   following it. The only captured output is a fixed marker, never a filename;
+   traversal diagnostics are suppressed and traversal failure exits nonzero.
+3. Runs the unchanged `node tools/scan-dist-secrets.mjs dist/client`, with original
+   stdout and stderr redirected to `/dev/null`. A shell `if` captures the real
+   scanner failure status before printing a fixed failure message and exits with
+   that exact status. Success prints only a fixed success message. There is no
+   `continue-on-error`, retry, fallback or path/matched-content output.
+
+The existing scanner's source was inspected; it scans passed tree file bytes and
+does not import application/configuration modules, read environment configuration
+or access the network. Its root `stat` follows symlinks and its diagnostics include
+paths, which is why this wrapper adds those two protections. The scanner itself
+is unchanged. Passing proves only that its existing marker rules did not find a
+match in that client's files; it does not establish absence of every secret.
+No scan count is fabricated or exposed.
+
+### Verification and evidence binding
+
+Local checks are limited to workflow/YAML structure, Bash syntax, Git scope/blob
+identity and safe diffcheck. No local install, application test, lint, tsc, build,
+dev, browser, scanner execution or private identity/configuration access is
+permitted. No synthetic configuration is added. Local wrapper branches are not
+executed; static validation is not runtime proof of every failure branch.
+
+Completed local static checks (exit 0 each): `python3 -I` with YAML `BaseLoader`
+parsed the old/new workflows and proved that removing the one appended step leaves
+the entire original workflow structure identical, including the four gates and
+all trigger/runner/checkout/cache settings; it also checked the exact two-path
+write set and unchanged historical evidence prefix. `bash --noprofile --norc -n`
+accepted the extracted step via stdin without executing it.
+`git -c core.hooksPath=/dev/null -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check 709afa4161fd9049c9651d59553ffb7299c516c1`
+reported no whitespace errors. This is static syntax/scope evidence, not a local
+application gate or local scanner result.
+
+The follow-up's final commit SHA, full static-check results, new automatic CI run,
+actual checkout SHA/tree and the four original gates plus the distinct scan step
+will be recorded in the PR handoff comment, not self-referenced in this commit.
+Until that new evidence exists, the new scan is pending. The original
+`709afa4161fd9049c9651d59553ffb7299c516c1`/run `40332762253` remains **not scanned**.
+Only one normal push to the original PR is allowed; no manually triggered run or
+automatic retry. Any action/CI failure stops with its actual phase recorded;
+uncertain remote outcomes must be read back before another action.
+
+Frozen visual/runtime/model acceptance is unchanged. The prior failed cloud
+browser WebGL check is not resumed; no new screenshots, model or real AI generation
+is attempted. Earlier independent static review remains historical evidence for
+the old head; a non-implementer must review the final workflow increment/new head.
+The implementer does not self-review, merge or deploy. Next receiver is the parent
+coordinator dot, who assigns that independent review. Cost is unavailable; final
+elapsed time and stop/clean status are recorded in the handoff comment.
