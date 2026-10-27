@@ -150,6 +150,15 @@ export interface BodyConfig {
   wheelbaseClass: WheelbaseClass;
   /** Wheelbase, or hitch-to-axle distance for towable kinds. */
   wheelbaseMm: number;
+  /**
+   * Announcement front overhang, mm. Omitted on prototype defaults;
+   * the motorhome-b detail generator then splits the leftover length
+   * in the measured R13 front/rear ratio. Registered rows set it from
+   * the registry entry.
+   */
+  frontOverhangMm?: number;
+  /** Announcement rear overhang, mm. See frontOverhangMm. */
+  rearOverhangMm?: number;
   /** Overall length, or trailer body length for towable kinds. */
   lengthMm: number;
   widthMm: number;

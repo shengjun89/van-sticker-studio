@@ -20,6 +20,7 @@ import {
   isPopUpRoof,
   isTowableKind,
 } from './parametric-body.ts';
+import { buildMotorhomeBDetail } from './parametric-body-detail.ts';
 
 const BODY_CREAM = 0xe9e2d2;
 const GLASS_DARK = 0x2b3438;
@@ -574,6 +575,8 @@ export function buildParametricBody(config: BodyConfig): THREE.Group {
         group = buildVanBody(config, 0.62, 0.42);
         break;
       case 'motorhome-b':
+        group = buildMotorhomeBDetail(config);
+        break;
       default:
         group = buildVanBody(config, 0.55, 0.36);
         break;
