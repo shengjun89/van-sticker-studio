@@ -240,3 +240,93 @@ the old head; a non-implementer must review the final workflow increment/new hea
 The implementer does not self-review, merge or deploy. Next receiver is the parent
 coordinator dot, who assigns that independent review. Cost is unavailable; final
 elapsed time and stop/clean status are recorded in the handoff comment.
+
+## 2026-10-27: independently authorized exact line-map correction
+
+The CI scan follow-up stopped after run `40470767509`/attempt 1 failed at
+`npm test` (158/161 passed, exit 1); tsc, build and the client scan were skipped.
+The failure and stop record remains
+[PR comment 6436820489](https://github.com/shengjun89/van-sticker-studio/pull/32#issuecomment-6436820489).
+That run is not rerun, and neither earlier candidate is retroactively scanned.
+
+The parent completed an independent read-only cause/equivalence check and issued
+[the next bounded correction](https://github.com/shengjun89/van-sticker-studio/pull/32#issuecomment-6436862532)
+under claim `vss-integration-9-28-line-map-20261027`. This continues the original
+sole implementer/task `01a1786a-607f-71a4-a4e4-46c3f78f8014`, branch and Draft PR.
+The effective rule/spec and AGENTS section 14 decision-table version remains
+main `5a9605ed0a45857996c48843b41977e9b30ad08b`; sections 7/14 permit the documented
+coordinate correction for a real documentation/spec migration after independent
+review. dot decided this exact scope; the implementer does not self-review.
+Visual/runtime/model acceptance stages and private configuration boundaries do
+not change.
+
+Frozen code parent: `11c43e4c8f19be6aa2a08c2f323b1cbf38ce0580`.
+Local worktree was clean, one worktree and no other implementation/application
+writer; remote head and effective main matched these stated SHAs. Incremental
+read-only metadata checks found the unique new claim, both previous candidate
+runs completed, and no active candidate/duplicate line-map run. No new branch,
+PR, implementation task, browser QA or manual CI run is created.
+
+### Cause, equivalence and exact write set
+
+The three existing public safety statements in `DEPLOY.md` are byte-identical
+between original main `3ef8fc05691604dbb9c546a67fe24c8c2c178cb4` and effective main;
+only their line coordinates moved. The implementation independently compared the
+complete old/new lines before editing and checked current public documentation
+coordinates rather than assuming the supplied numbers. The current main document
+blob is `58e8debdb68a68c348dcdfd057723586725afaae`; the frozen candidate test blob
+before this correction is `a8a47e99957ae99ae001c1e511fc6eb1c5daceac`.
+The parent's independent check tied those same blobs to failed CI checkout
+`2f18ca18abc243b4fb3008776c677985134d0cdf`, whose parents were effective main plus
+the frozen candidate. Its tree differed from the branch tree; no main update was
+merged or rebased into this branch.
+
+| Exact public statement coordinate | Old | Effective main |
+| --- | --- | --- |
+| first existing deployment safety statement | 136 | 129 |
+| second existing deployment safety statement | 259 | 260 |
+| third existing deployment safety statement | 285 | 287 |
+
+Only `tests/secret-hygiene.test.ts` and this evidence file may change. The test
+change is exactly six numeric substitutions: three allowlist `lineNumber` fields
+and the corresponding three expected `DEPLOY.md` coordinates. Existing constant
+identifiers retain their historical names; their exact strings are unchanged.
+Paths, the fourth README entry/coordinate, the total of four allowed statements,
+strict path/line/text matching, independent credential detection, every negative
+test, matching logic and failure assertion remain unchanged. There is no regex
+relaxation, automatic location discovery, new exception or removed assertion.
+Scanner, workflow (including the guarded post-build step), application and all
+other source blobs remain identical to the frozen code parent.
+
+### Local verification and new CI binding
+
+Only static public-source/Git comparisons and safe diffcheck are allowed locally:
+check the six exact before/after substitutions, unchanged remaining test bytes,
+old/new safety-statement byte equality and coordinates, the two-path scope,
+unchanged remaining tree entries and preserved historical evidence. No local
+application test/lint/tsc/build, install, dev, browser, scanner or private identity
+configuration read is performed; no substitute configuration is created.
+
+Completed static checks, exit 0: a Python standard-library byte comparison proved
+the entire test file equals the frozen parent plus exactly those six replacements;
+all remaining bytes are unchanged. Public-source comparisons confirmed identical
+full statement lines and current coordinates 129/260/287 in DEPLOY, plus the
+unchanged README coordinate 23. Scope is exactly the two allowed paths, and the
+prior evidence is an unchanged prefix. Safe
+`git -c core.hooksPath=/dev/null -c core.fsmonitor=false diff --no-ext-diff --no-textconv --check 11c43e4c8f19be6aa2a08c2f323b1cbf38ce0580`
+returned exit 0. These checks did not execute the TypeScript test or scanner.
+
+The next normal push is one new commit under this separate correction claim.
+Its final head, new automatic CI run/attempt, actual merge checkout parents/tree,
+four gates and distinct client-scan step results are recorded in the PR handoff
+comment to avoid self-referential commit identifiers. Until then they are pending.
+Do not infer that head and checkout have the same tree. Scan success means only
+the unchanged scanner's existing marker rules did not match that built client;
+no scan count or guarantee that all secrets are absent is asserted.
+
+If the new CI fails, stop without further correction or rerun. Keep all previous
+failure records and unchanged visual/runtime/model gaps; do not resume WebGL QA.
+The next receiver is parent coordinator dot for a non-implementer final review
+of this increment and its actual gate/scan evidence. No merge or deployment is
+authorized. Final stop/clean status, elapsed time and unavailable cost metrics
+are recorded in the handoff comment.

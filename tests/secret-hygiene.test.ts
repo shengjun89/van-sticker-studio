@@ -57,21 +57,21 @@ export const DOC_SAFETY_ALLOWLIST: readonly {
   },
   {
     path: 'DEPLOY.md',
-    lineNumber: 136,
+    lineNumber: 129,
     line: DEPLOY_LINE_136,
     reason:
       'Verified documentation safety statement: DEPLOY forbids the browser prefix because it is bundled to the client.',
   },
   {
     path: 'DEPLOY.md',
-    lineNumber: 259,
+    lineNumber: 260,
     line: DEPLOY_LINE_259,
     reason:
       'Verified documentation safety statement: deployment checklist says the prefix must not appear as a key.',
   },
   {
     path: 'DEPLOY.md',
-    lineNumber: 285,
+    lineNumber: 287,
     line: DEPLOY_LINE_285,
     reason:
       'Verified documentation safety statement: troubleshooting text says not to misuse the prefix.',
@@ -844,9 +844,9 @@ void test('workspace browser-prefix hits are exactly the four verified lines', (
   }
   hits.sort();
   assert.deepEqual(hits, [
-    'DEPLOY.md:136',
-    'DEPLOY.md:259',
-    'DEPLOY.md:285',
+    'DEPLOY.md:129',
+    'DEPLOY.md:260',
+    'DEPLOY.md:287',
     'README.md:23',
   ]);
 });
