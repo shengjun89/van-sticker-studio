@@ -2,7 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import BodyConfigPanel from '@/components/studio/BodyConfigPanel';
-import { configForRegisteredModel } from '@/lib/announcement-db-data';
+import {
+  configForRegisteredModel,
+  registryEntryForModel,
+} from '@/lib/announcement-db-data';
 import { t, type Lang } from '@/lib/i18n';
 import {
   DEFAULT_BODY_CONFIG,
@@ -41,7 +44,17 @@ export default function BodyLabPage() {
       return;
     }
     const next = configForRegisteredModel(modelId);
-    if (next !== null) setConfig(next);
+    if (next === null) return;
+    const verified = registryEntryForModel(modelId)?.verified;
+    setConfig({
+      ...next,
+      ...(typeof verified?.front_overhang_mm === 'number'
+        ? { frontOverhangMm: verified.front_overhang_mm }
+        : {}),
+      ...(typeof verified?.rear_overhang_mm === 'number'
+        ? { rearOverhangMm: verified.rear_overhang_mm }
+        : {}),
+    });
   };
   const [popKey, setPopKey] = useState(0);
   const host = useRef<HTMLDivElement>(null);

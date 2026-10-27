@@ -150,6 +150,15 @@ export interface BodyConfig {
   wheelbaseClass: WheelbaseClass;
   /** Wheelbase, or hitch-to-axle distance for towable kinds. */
   wheelbaseMm: number;
+  /**
+   * Announcement front overhang, mm. Present only on a registry row
+   * that verified it. Omitted on the prototype demo; that demo stays
+   * on the schematic body. The detail generator rejects a call that
+   * omits this field.
+   */
+  frontOverhangMm?: number;
+  /** Announcement rear overhang, mm. See frontOverhangMm. */
+  rearOverhangMm?: number;
   /** Overall length, or trailer body length for towable kinds. */
   lengthMm: number;
   widthMm: number;
