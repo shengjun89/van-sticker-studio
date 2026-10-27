@@ -201,28 +201,39 @@ const OPENINGS: readonly Opening[] = [
   },
 ];
 
+/**
+ * The detail generator only accepts a motorhome-b config that already
+ * carries both verified overhangs. Missing fields are not filled from
+ * the paradigm ratio.
+ */
+export function requireVerifiedOverhangs(config: BodyConfig): {
+  frontOverhangMm: number;
+  rearOverhangMm: number;
+} {
+  if (config.vehicleKind !== 'motorhome-b') {
+    throw new Error(
+      'detail generator requires motorhome-b with verified overhangs',
+    );
+  }
+  const front = config.frontOverhangMm;
+  const rear = config.rearOverhangMm;
+  if (typeof front !== 'number' || !Number.isFinite(front)) {
+    throw new Error('detail generator requires frontOverhangMm');
+  }
+  if (typeof rear !== 'number' || !Number.isFinite(rear)) {
+    throw new Error('detail generator requires rearOverhangMm');
+  }
+  return { frontOverhangMm: front, rearOverhangMm: rear };
+}
+
 export function detailLayout(config: BodyConfig): DetailLayout {
+  const verified = requireVerifiedOverhangs(config);
   const lengthM = config.lengthMm / 1000;
   const widthM = config.widthMm / 1000;
   const heightM = config.heightMm / 1000;
   const wheelbaseM = config.wheelbaseMm / 1000;
-  const paradigmFront = R13_PARADIGM.frontAxleX - R13_PARADIGM.frontFaceX;
-  const paradigmRear = R13_PARADIGM.rearFaceX - R13_PARADIGM.rearAxleX;
-  const leftover = lengthM - wheelbaseM;
-  const frontMm = config.frontOverhangMm;
-  const rearMm = config.rearOverhangMm;
-  let frontOverhangM = leftover * (paradigmFront / (paradigmFront + paradigmRear));
-  let rearOverhangM = leftover - frontOverhangM;
-  if (typeof frontMm === 'number' && typeof rearMm === 'number') {
-    frontOverhangM = frontMm / 1000;
-    rearOverhangM = rearMm / 1000;
-  } else if (typeof frontMm === 'number') {
-    frontOverhangM = frontMm / 1000;
-    rearOverhangM = leftover - frontOverhangM;
-  } else if (typeof rearMm === 'number') {
-    rearOverhangM = rearMm / 1000;
-    frontOverhangM = leftover - rearOverhangM;
-  }
+  const frontOverhangM = verified.frontOverhangMm / 1000;
+  const rearOverhangM = verified.rearOverhangMm / 1000;
   const frontFace = -lengthM / 2;
   const frontAxleX = frontFace + frontOverhangM;
   const rearAxleX = frontAxleX + wheelbaseM;

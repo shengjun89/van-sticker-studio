@@ -22,8 +22,8 @@ import {
 /**
  * Body lab (slice 1): parametric B-type body configurator.
  * Deliberately separate from the main wrap studio page: the shipped GLB
- * model and the decal flow are untouched. Motorhome-b uses the R13
- * detail generator; other kinds stay schematic. Neither is the shipped GLB.
+ * model and the decal flow are untouched. The preview here is a schematic
+ * procedural body, not the real van model.
  */
 export default function BodyLabPage() {
   const [lang, setLang] = useState<Lang>('zh');

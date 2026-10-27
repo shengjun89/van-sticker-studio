@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { type BodyConfig } from '../lib/parametric-body.ts';
+import {
+  DEFAULT_BODY_CONFIG,
+  type BodyConfig,
+} from '../lib/parametric-body.ts';
+import { buildMotorhomeBDetail } from '../lib/parametric-body-detail.ts';
 import { buildParametricBody } from '../lib/parametric-body-scene.ts';
 import {
   MODEL_CATALOG,
@@ -16,9 +20,20 @@ import {
 
 /**
  * Issue #2 acceptance for the R13 motorhome-b detail generator.
- * These assertions describe the generator contract. On the pre-change
- * schematic they fail: no feature tags, axles sit at ±wheelbase/2, and
- * the roof slab puts the bbox 0.08 m above the configured height.
+ *
+ * Import/fs chain, checked before the whitelist run: this file imports
+ * node:test, node:assert/strict, node:fs, three, lib/parametric-body.ts
+ * (no further local imports), lib/parametric-body-detail.ts (three and
+ * parametric-body), lib/parametric-body-scene.ts (three, parametric-body,
+ * parametric-body-detail) and lib/announcement-db.ts (parametric-body
+ * only). fs reads lib/announcement-db.json plus the page, scene and
+ * body sources as text. It does not import announcement-db-data.ts,
+ * app/body-lab/page.tsx, vite.config.ts, or .openai/hosting.json.
+ *
+ * Registry rows that carry both verified overhangs use the detail
+ * generator. Input that omits them stays on the schematic body,
+ * including the 0.08 m roof slab. The generator itself throws when
+ * those fields are missing.
  */
 
 const shipped = JSON.parse(
@@ -307,6 +322,46 @@ void test('11 partial rows stay visible, unselectable, and emit no config', () =
   }
 });
 
+void test('detail generator rejects input missing verified overhangs', () => {
+  assert.throws(
+    () => buildMotorhomeBDetail(DEFAULT_BODY_CONFIG),
+    /frontOverhangMm/,
+  );
+  const row = detailConfig(completeRows()[0]);
+  const withoutFront: BodyConfig = { ...row };
+  delete withoutFront.frontOverhangMm;
+  assert.throws(() => buildMotorhomeBDetail(withoutFront), /frontOverhangMm/);
+  const withoutRear: BodyConfig = { ...row };
+  delete withoutRear.rearOverhangMm;
+  assert.throws(() => buildMotorhomeBDetail(withoutRear), /rearOverhangMm/);
+  assert.throws(
+    () => buildMotorhomeBDetail({ ...row, vehicleKind: 'camper' }),
+    /motorhome-b/,
+  );
+});
+
+void test('default demo without overhangs keeps the schematic roof slab', () => {
+  const group = buildParametricBody(DEFAULT_BODY_CONFIG);
+  const size = bboxOf(group).getSize(new THREE.Vector3());
+  assert.ok(Math.abs(size.y - 3.13) < 0.02, `height ${size.y}`);
+  assert.equal(byFeature(group, 'shell').length, 0);
+  assert.equal(byFeature(group, 'wheel-tire').length, 0);
+});
+
+void test('clearing overhangs restores the schematic body', () => {
+  const detailed = detailConfig(completeRows()[0]);
+  const restored: BodyConfig = { ...detailed };
+  delete restored.frontOverhangMm;
+  delete restored.rearOverhangMm;
+  const group = buildParametricBody(restored);
+  assert.equal(byFeature(group, 'shell').length, 0);
+  const size = bboxOf(group).getSize(new THREE.Vector3());
+  assert.ok(
+    Math.abs(size.y - (restored.heightMm / 1000 + 0.08)) < 0.02,
+    `restored height ${size.y}`,
+  );
+});
+
 void test('body-lab wires overhang from the registry row and motorhome-b calls the detail generator', () => {
   const page = fs.readFileSync(
     new URL('../app/body-lab/page.tsx', import.meta.url),
@@ -323,7 +378,10 @@ void test('body-lab wires overhang from the registry row and motorhome-b calls t
   assert.match(page, /front_overhang_mm/);
   assert.match(page, /rear_overhang_mm/);
   assert.match(page, /registryEntryForModel/);
+  assert.match(page, /setConfig\(\{ \.\.\.DEFAULT_BODY_CONFIG \}\)/);
+  assert.match(scene, /verifiedMotorhomeBOverhangs/);
   assert.match(scene, /buildMotorhomeBDetail/);
+  assert.match(scene, /buildVanBody\(config, 0\.55, 0\.36\)/);
   assert.match(body, /frontOverhangMm\?/);
   assert.match(body, /rearOverhangMm\?/);
 });

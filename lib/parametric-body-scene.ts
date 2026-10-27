@@ -22,6 +22,16 @@ import {
 } from './parametric-body.ts';
 import { buildMotorhomeBDetail } from './parametric-body-detail.ts';
 
+/** Both verified overhangs are required before the R13 detail body. */
+function verifiedMotorhomeBOverhangs(config: BodyConfig): boolean {
+  return (
+    typeof config.frontOverhangMm === 'number' &&
+    Number.isFinite(config.frontOverhangMm) &&
+    typeof config.rearOverhangMm === 'number' &&
+    Number.isFinite(config.rearOverhangMm)
+  );
+}
+
 const BODY_CREAM = 0xe9e2d2;
 const GLASS_DARK = 0x2b3438;
 const RUBBER_DARK = 0x1c1e20;
@@ -575,7 +585,9 @@ export function buildParametricBody(config: BodyConfig): THREE.Group {
         group = buildVanBody(config, 0.62, 0.42);
         break;
       case 'motorhome-b':
-        group = buildMotorhomeBDetail(config);
+        group = verifiedMotorhomeBOverhangs(config)
+          ? buildMotorhomeBDetail(config)
+          : buildVanBody(config, 0.55, 0.36);
         break;
       default:
         group = buildVanBody(config, 0.55, 0.36);

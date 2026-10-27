@@ -1,6 +1,6 @@
 # Issue #2：验收清单与覆盖实话
 
-执行者：Grok（以 shengjun89 身份）。claim `grok-issue2-r13-generator-20261027`。
+执行者：Grok（以 shengjun89 身份）。claim `grok-issue2-r13-generator-20261027`。云任务 `bc-2da5f480-4c28-5d64-b7f1-0af71525b603`。
 
 冻结规范：main `c1666c2af070f36189f363c41b564074f5448c7b`。
 
@@ -10,11 +10,37 @@
 
 落地到 main、以及落地后的 GLB 哈希链，由维护者执行。本次只开 Draft PR，不合并，不推 main。
 
-## 先红后绿
+协调约束：issue 评论 6445598236、6445434425。
 
-新文件 `tests/body-lab-detail.test.ts` 先对着冻结 main 的旧示意车体跑过，再对着本实现跑过。
+## 兼容边界
 
-旧代码（实现之前）：
+只有带已核实 `frontOverhangMm` / `rearOverhangMm` 的登记输入进入精细生成器。缺这两个字段的默认演示保持原示意行为，包括 3.05 m 车高加 0.08 m 顶板。既有 `tests/parametric-body-scene.test.ts` 没有改断言。
+
+`buildParametricBody` 在 `motorhome-b` 上先看 `verifiedMotorhomeBOverhangs`。两个前后悬都是有限数才调用 `buildMotorhomeBDetail`，否则走原来的 `buildVanBody(config, 0.55, 0.36)`。
+
+`requireVerifiedOverhangs` 在生成器内部拒绝缺数据：车种不是 motorhome-b，或任一前后悬缺失 / 非有限数，直接抛错。不再用 R13 前后悬比例填空。
+
+`app/body-lab/page.tsx` 只在选中登记行时，把该行 verified 的前后悬写进配置。选回空模型时 `setConfig({ ...DEFAULT_BODY_CONFIG })`，精细字段被清掉。面板上的「恢复默认」在写锁外，它调用的 `configForRegisteredModel` 本身不复制前后悬，所以那次 `onChange` 也会清掉精细字段。没有改公告库，没有加自由滑杆。
+
+页头、导航、Link 导入和返回工作台链接没有动。相对冻结 main，该文件的 diff 只有登记配置转换和前后悬接线。
+
+## 新测试的读取链
+
+`tests/body-lab-detail.test.ts` 的 import 停在：
+
+- `node:test`、`node:assert/strict`、`node:fs`、`three`
+- `lib/parametric-body.ts`（无进一步本地 import）
+- `lib/parametric-body-detail.ts`（`three`、`parametric-body`）
+- `lib/parametric-body-scene.ts`（`three`、`parametric-body`、`parametric-body-detail`）
+- `lib/announcement-db.ts`（只引 `parametric-body`）
+
+`fs` 只读 `lib/announcement-db.json`，以及 `page.tsx`、`parametric-body-scene.ts`、`parametric-body.ts` 的源码文本。没有 import `announcement-db-data.ts`、`page.tsx`、`vite.config.ts`，也没有读 `.openai/hosting.json`。
+
+白名单另外两份：`tests/parametric-body.test.ts` 只引 `parametric-body.ts`；`tests/parametric-body-scene.test.ts` 引 `parametric-body.ts` 与 `parametric-body-scene.ts`。都没有碰到受保护配置。
+
+## 先红后绿（AGENTS.md §9）
+
+第一轮，精细测试对着冻结 main 的旧示意车体：
 
 ```text
 node --experimental-strip-types --test tests/body-lab-detail.test.ts
@@ -24,58 +50,67 @@ node --experimental-strip-types --test tests/body-lab-detail.test.ts
 退出码 1
 ```
 
-失败要点：
+失败要点：`sh6601h4db-s-h2525` 包围盒高 2.605 m（配置高 2.525 m 再加 0.08 m 顶板）；没有 `wheel-tire`；没有 `shell` 和其它 `userData.feature`；页面当时没有 `front_overhang_mm`。当时已绿的一条是 11 条部分行的既有公告库行为，不算新行为的先证伪。
 
-- `sh6601h4db-s-h2525` 包围盒高 2.605 m，配置高 2.525 m（旧顶板在配置高度之上加了 0.08 m）
-- 没有 `wheel-tire`，胎数断言为 0
-- 没有 `shell` 以及特征清单里的其它 `userData.feature`
-- `app/body-lab/page.tsx` 当时没有 `front_overhang_mm` / `registryEntryForModel`
+第二轮，兼容边界测试写好后、改路由之前（当时 motorhome-b 一律进精细生成器）：
 
-已经是绿的那一条是「11 条部分行可见、不可选、无配置输出」。这是 main 上公告库原有行为，不是新生成器测红过的行为。按先证伪纪律，这条不能算新行为的测试证据；它只是把既有门闩再钉一次。
+```text
+node --experimental-strip-types --test tests/body-lab-detail.test.ts
+# tests 11
+# pass 7
+# fail 4
+退出码 1
+```
 
-实现之后同一命令：8 通过，0 失败，退出码 0。最终工作树（含类型收窄与本文档）于 2026-10-27 复跑，结果相同。
+失败：缺前后悬没有抛错；默认演示高 `3.050000008969009`；清掉前后悬后仍有 `shell`；场景源码里没有 `verifiedMotorhomeBOverhangs`。
+
+改完边界后，白名单三文件一起：
+
+```text
+node --experimental-strip-types --test tests/body-lab-detail.test.ts tests/parametric-body.test.ts tests/parametric-body-scene.test.ts
+# tests 45
+# pass 45
+# fail 0
+退出码 0
+```
+
+第三轮，故意改坏实现：生成器把缺失前后悬当成 0，并且 motorhome-b 不再走示意分支。同一条白名单里的前两份文件：
+
+```text
+node --experimental-strip-types --test tests/body-lab-detail.test.ts tests/parametric-body-scene.test.ts
+# tests 21
+# pass 17
+# fail 4
+退出码 1
+```
+
+失败：缺数据没有抛错；默认演示高仍是 `3.050000008969009`；清掉前后悬后 `shell` 数是 1；既有断言 `schematic body spans the configured length and height` 报长度 `6.1944000852108`。没有改那条既有断言。
+
+随即把这两处改回。恢复后同一条三文件白名单再次：45 项，通过 45，失败 0，退出码 0。
 
 ## 验收条目
 
-- [x] 24 条完整行 F+WB+R=L 精确（毫米整数相等）。测试逐行断言。
-- [x] 这 24 行的车体包围盒长在 ±0.01 m、高在 ±0.02 m 内。壳顶落在配置高度，车轮把最低点放在 y=0，所以包围盒高等于配置高。
-- [x] 车轮接地：组包围盒 min.y 与每条前胎 min.y 的绝对值小于 1e-3 m。
-- [x] 轴 x 精确：前胎 x = −L/2+前悬，后胎 x = 前轴+轴距，容差 1e-3 m。并断言这不是 ±轴距/2 的两点居中摆法。
-- [x] 11 条部分行仍在登记里、有名称、不可选、`configForModelIn` 为 null。没有补造缺的尺寸。
-- [ ] 测试全绿。`npm test` 退出码 1：116 项里 115 通过、1 失败。失败项在写锁之外，见下节。
-- [x] lint 0 error / 0 warning。`npm run lint`（oxlint）退出码 0，无告警输出。
+- [x] 24 条完整行 F+WB+R=L 精确。带已核实前后悬时，包围盒长 ±0.01 m、高 ±0.02 m；车轮 min.y 为 0；轴 x 为 −L/2+前悬与前轴+轴距。判定：`tests/body-lab-detail.test.ts`。
+- [x] 11 条部分行可见、不可选、无配置输出。没有补造尺寸。
+- [x] 缺前后悬的默认演示保持示意车体：高 3.05 m + 0.08 m 顶板。既有 `tests/parametric-body-scene.test.ts` 原样通过，断言未改。
+- [x] 精细生成器对缺前后悬、以及非 motorhome-b，抛错拒绝。
+- [x] 清掉前后悬后回到示意车体。页面把空选择恢复成 `DEFAULT_BODY_CONFIG`。
+- [x] lint 0 error / 0 warning。`npm run lint` 退出码 0。
+- [ ] 全量 `npm test` 通配扫描。本轮按协调者要求未运行。
 - [ ] `npx tsc --noEmit` 未运行。
-- [ ] `npm run build` 未运行。因此不能声称构建产物包含 `/body-lab`。
+- [ ] `npm run build` 未运行。不能声称构建产物包含 `/body-lab`。
 - [ ] 推 main 后的线上 `/body-lab` 未验证。
-- [ ] R13 GLB 上线哈希链未在本次验证。本地工作树哈希与 issue 给定值一致，见 measurement.md。
+- [ ] R13 GLB 上线哈希链未在本次验证。工作树哈希与 issue 给定值一致，见 measurement.md。
 
-## 全量测试里的那一条失败
+## 未运行的 tsc、build 与全量扫描
 
-```text
-npm test
-退出码 1
-# tests 116
-# pass 115
-# fail 1
-```
+`vite.config.ts` 有 `import hostingConfig from './.openai/hosting.json'`。`tsconfig.json` 含 `**/*.ts` 且 `resolveJsonModule` 为 true，因此 `npx tsc --noEmit` 会读该文件。`npm run build` 会加载同一份 vite 配置。
 
-失败：`tests/parametric-body-scene.test.ts` 的 `schematic body spans the configured length and height`。
+这两项未运行。没有打开、创建或伪造 `.openai/hosting.json`。CI 若覆盖它们，结果以获准 CI 为准。
 
-实际高度 `3.050000008969009`。该测试期望默认 B 型（高 3.05 m）的包围盒高为 3.13 m，也就是旧示意顶板再加 0.08 m。
+`npm test` 是 `tests/*.test.ts` 通配扫描。协调者要求只跑显式白名单，本轮没有跑通配扫描。
 
-motorhome-b 已改为精细生成器，壳顶落在配置高度，所以这条旧断言不再成立。该测试文件不在本次写锁内。按写锁，没有改它，也没有为了让它变绿而在默认高度上加回 0.08 m 顶板。夜跑不自动重试这条失败。
-
-需要 dot 决定：把写锁扩到这一条断言（期望高度改为配置高度），或保持本 PR 在全量测试上为红。
-
-其余既有场景测试（各车种能建出、滑移舱、雨篷、空调、附件网格数、弹跳）在这次 `npm test` 里通过。
-
-## 未运行的 tsc 与 build
-
-`vite.config.ts` 有 `import hostingConfig from './.openai/hosting.json'`。`tsconfig.json` 的 `include` 含 `**/*.ts`，且 `resolveJsonModule` 为 true，因此 `npx tsc --noEmit` 会读该文件。`npm run build` 走 vinext，会加载同一份 vite 配置。
-
-协调者禁止本地运行会读取 `.openai/hosting.json` 的命令。这两项没有跑。没有打开、创建或改写该文件。CI 若跑这两项，结果以 CI 为准，本次不能打勾。
-
-`npm run lint` 的路径是 `app components/studio lib tests`，不包含 `vite.config.ts`。本次 lint 退出码 0。
+`npm run lint` 的路径是 `app components/studio lib tests`，不包含 `vite.config.ts`。退出码 0。更早一次 lint 曾因 `frontOverhangMm` 可能为 undefined 失败（退出码 1，4 条 TS18048），收窄类型后已通过。
 
 ## 未验证
 
@@ -89,26 +124,27 @@ motorhome-b 已改为精细生成器，壳顶落在配置高度，所以这条�
 
 ## 覆盖实话
 
-- 只替换了 motorhome-b。24 条完整公告行对应 8 个公告型号（各高度变体分行），由范式加该行登记尺寸生成精细模型。
-- 11 条部分行仍缺分变体长度、后悬或其它必填字段，保持不可选，没有配置输出，没有编造尺寸。
-- camper、越野、客车、C 型、皮卡、拖挂仍是示意模型。不能说已经覆盖所有车型。
-- V80 以外车型的精细模型是「范式 + 本车登记尺寸 + 类别/窗位规则」，不是原厂精确几何。不声称 V80 身份，也不把客车公告写成已认证旅居车。
-- 厨房窗与卫浴窗用的是 V02 实测同一对 y（1.8837–2.3067 m），缩放后中心高度相同。入户侧是额头、生活前、生活后、入户门玻璃、驾驶舱玻璃。没有额头眉带。
-- 窗框边宽 0.035 m，测试检查厨房窗框包围盒比玻璃各大 0.07 m。
-- 未配前后悬时（演示默认），剩余长度按 R13 前悬:后悬比例拆开，仍然是四锚点，不是轴距居中。
-- Draft PR #23 也改 `app/body-lab/page.tsx`。本 PR 对该文件只加了登记前后悬接线。合并顺序由 dot 定。
+- 只在带齐已核实前后悬的 motorhome-b 上使用精细生成器。24 条完整公告行对应 8 个公告型号（各高度变体分行）。
+- 缺前后悬的默认演示、以及清掉这些字段之后，仍是原来的示意车体和 0.08 m 顶板。
+- 11 条部分行仍缺尺寸，保持不可选，没有配置输出。
+- camper、越野、客车、C 型、皮卡、拖挂仍是示意模型。
+- 这是设计展示用的范式车体。不得按图开料，不得声称为原厂精确几何，不声称 V80 身份。
+- 厨房窗与卫浴窗用的是 V02 实测同一对 y（1.8837–2.3067 m）。入户侧是额头、生活前、生活后、入户门玻璃、驾驶舱玻璃。没有额头眉带。
+- 窗框边宽 0.035 m。
+- Draft PR #23 也改 `app/body-lab/page.tsx`，范围是 Link 导入和返回工作台页头。本分支没有碰那些行。
 
 ## 命令
 
-环境：Node v22.23.4。工作树 GLB 哈希见 measurement.md。时间：2026-10-27。
+环境：Node v22.23.4。时间：2026-10-27。工作树 GLB 哈希见 measurement.md。
 
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
-| `node --experimental-strip-types --test tests/body-lab-detail.test.ts`（实现前） | 1 | 8 项，通过 1，失败 7 |
-| `node --experimental-strip-types --test tests/body-lab-detail.test.ts`（实现后） | 0 | 8 项，通过 8，失败 0 |
-| `npm test` | 1 | 116 项，通过 115，失败 1（`parametric-body-scene.test.ts` 高度 3.05 对期望 3.13） |
+| `node --experimental-strip-types --test tests/body-lab-detail.test.ts`（对着冻结 main 的旧示意车体） | 1 | 8 项，通过 1，失败 7 |
+| 同上（兼容测试已加入、路由未改） | 1 | 11 项，通过 7，失败 4 |
+| `node --experimental-strip-types --test tests/body-lab-detail.test.ts tests/parametric-body.test.ts tests/parametric-body-scene.test.ts`（边界改完） | 0 | 45 项，通过 45，失败 0 |
+| 同上前两份文件（故意改坏：缺数据当 0，且 motorhome-b 一律进精细生成器） | 1 | 21 项，通过 17，失败 4 |
+| 三文件白名单（改回之后） | 0 | 45 项，通过 45，失败 0 |
 | `npm run lint` | 0 | oxlint 无 error / warning 输出 |
+| `npm test` | 未运行 | 通配扫描不在本轮授权内 |
 | `npx tsc --noEmit` | 未运行 | 会经 `vite.config.ts` 读取 `.openai/hosting.json` |
 | `npm run build` | 未运行 | 同上 |
-
-lint 曾先因 `frontOverhangMm` 可能为 undefined 失败（退出码 1，4 条 TS18048）。收窄类型后重跑 lint，退出码 0。没有为了全量测试变绿去改写锁外的断言。
