@@ -25,6 +25,9 @@ import VehicleScene, {
   type VehicleHandle,
 } from '@/components/studio/VehicleScene';
 import PlanInsights from '@/components/studio/PlanInsights';
+import PalettePicker from '@/components/studio/PalettePicker';
+import paletteStyles from '@/components/studio/PalettePicker.module.css';
+import type { VehiclePalette } from '@/lib/vehicle-palettes';
 import type { WrapEditState } from '@/lib/vehicle-wrap-editor';
 import { DEFAULT_DECAL_ASPECT, VAN_WRAP_BODY } from '@/lib/plan-insights';
 import {
@@ -71,6 +74,7 @@ export default function Home() {
   const [selected, setSelected] = useState<string | null>(null);
   const [applied, setApplied] = useState<Sticker | null>(null);
   const [presentation, setPresentation] = useState<Presentation>('drawing');
+  const [palette, setPalette] = useState<VehiclePalette | null>(null);
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
   const [slots, setSlots] = useState<Record<number, SlotStatus>>({});
@@ -320,7 +324,7 @@ export default function Home() {
     setApplying(false);
     await vehicle.current?.applySticker(null);
     setApplied(null);
-    setPresentation('drawing');
+    setPresentation(palette ? 'render' : 'drawing');
     setSelected(null);
     announce(t(lang, 'toast.cleared'));
   };
@@ -694,6 +698,7 @@ export default function Home() {
             </Link>
           </div>
         </aside>
+        <div className={paletteStyles.sceneColumn}>
         <section
           className={`scene-panel ${presentation === 'drawing' ? 'is-drawing' : 'is-rendered'} ${busy ? 'is-generating' : ''}`}
           aria-label={t(lang, 'page.sceneAria')}
@@ -703,9 +708,10 @@ export default function Home() {
             lang={lang}
             generating={busy}
             presentation={presentation}
+            palette={palette}
             onCommit={(sticker) => {
               setApplied(sticker);
-              setPresentation(sticker ? 'render' : 'drawing');
+              setPresentation(sticker || palette ? 'render' : 'drawing');
             }}
             parts={parts}
             wipers={wipers}
@@ -931,6 +937,15 @@ export default function Home() {
             </span>
           </div>
         </section>
+          <PalettePicker
+            lang={lang}
+            selected={palette}
+            onSelect={(next) => {
+              setPalette(next);
+              setPresentation('render');
+            }}
+          />
+        </div>
       </div>
     </main>
   );
