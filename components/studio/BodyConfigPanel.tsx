@@ -346,6 +346,13 @@ export default function BodyConfigPanel({
   const [tabKind, setTabKind] = useState<VehicleKind>(config.vehicleKind);
   const isB = config.vehicleKind === 'motorhome-b';
   const trio = trioOf(config);
+  const trioRange = (values: readonly number[], current: number) => ({
+    min: Math.min(values[0] ?? current, current),
+    max: Math.max(values[values.length - 1] ?? current, current),
+  });
+  const wheelbaseRange = trioRange(points.wheelbases, trio.wheelbaseMm);
+  const frontRange = trioRange(points.fronts, trio.frontOverhangMm);
+  const rearRange = trioRange(points.rears, trio.rearOverhangMm);
   const setTrio = (patch: Partial<ChassisTrio>) => {
     const next = { ...trio, ...patch };
     onChange({ ...config, ...next, lengthMm: trioLengthMm(next) });
@@ -480,11 +487,8 @@ export default function BodyConfigPanel({
             <Slider
               label={t(lang, 'bodylab.wheelbaseMm')}
               value={trio.wheelbaseMm}
-              min={points.wheelbases[0] ?? trio.wheelbaseMm}
-              max={
-                points.wheelbases[points.wheelbases.length - 1] ??
-                trio.wheelbaseMm
-              }
+              min={wheelbaseRange.min}
+              max={wheelbaseRange.max}
               step={5}
               unit="mm"
               popKey={popKey}
@@ -494,11 +498,8 @@ export default function BodyConfigPanel({
             <Slider
               label={t(lang, 'bodylab.frontOverhang')}
               value={trio.frontOverhangMm}
-              min={points.fronts[0] ?? trio.frontOverhangMm}
-              max={
-                points.fronts[points.fronts.length - 1] ??
-                trio.frontOverhangMm
-              }
+              min={frontRange.min}
+              max={frontRange.max}
               step={5}
               unit="mm"
               popKey={popKey}
@@ -508,11 +509,8 @@ export default function BodyConfigPanel({
             <Slider
               label={t(lang, 'bodylab.rearOverhang')}
               value={trio.rearOverhangMm}
-              min={points.rears[0] ?? trio.rearOverhangMm}
-              max={
-                points.rears[points.rears.length - 1] ??
-                trio.rearOverhangMm
-              }
+              min={rearRange.min}
+              max={rearRange.max}
               step={5}
               unit="mm"
               popKey={popKey}
