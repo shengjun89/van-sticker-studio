@@ -21,6 +21,10 @@ const expectedColors = [
   ['#F2F2EE', '#34445A', '#C9CDD1'],
 ];
 
+// Inspect the original function identity without extracting a callable method.
+const readCompileHook = (material: THREE.Material): unknown =>
+  Reflect.get(material, 'onBeforeCompile');
+
 void test('the ten selectable palettes retain all approved colors and translated names', () => {
   assert.deepEqual(
     VEHICLE_PALETTES.map(({ white, accent, trim }) => [white, accent, trim]),
@@ -69,7 +73,7 @@ function setup() {
         mesh,
         material: surface,
         color: surface.color.clone(),
-        hook: surface.onBeforeCompile,
+        hook: readCompileHook(surface),
       };
     },
   );
@@ -99,7 +103,7 @@ function setup() {
     panel,
     excluded,
     shader,
-    cleanup() {
+    cleanup: () => {
       editor.dispose();
       root.traverse((object) => {
         if (object instanceof THREE.Mesh) {
@@ -150,7 +154,7 @@ void test('all palette switches and restore preserve the actual decal, placement
     editor.setLocked(true);
     const before = editor.getState(),
       texture = shader.uniforms.uDecalMap.value;
-    const hook = material.onBeforeCompile,
+    const hook = readCompileHook(material),
       cacheKey = material.customProgramCacheKey();
     const geometry = panel.geometry;
     const chart = Array.from(geometry.getAttribute('aWrapCoord').array);
@@ -182,7 +186,7 @@ void test('all palette switches and restore preserve the actual decal, placement
     assert.equal(shader.uniforms.uPaletteEnabled.value, 0);
     assert.equal(shader.uniforms.uDecalMap.value, texture);
     assert.deepEqual(editor.getState(), before);
-    assert.equal(material.onBeforeCompile, hook);
+    assert.equal(readCompileHook(material), hook);
     assert.equal(material.customProgramCacheKey(), cacheKey);
     assert.equal(panel.geometry, geometry);
     assert.deepEqual(
@@ -196,7 +200,7 @@ void test('all palette switches and restore preserve the actual decal, placement
     for (const item of excluded) {
       assert.equal(item.mesh.material, item.material);
       assert.ok(item.material.color.equals(item.color));
-      assert.equal(item.material.onBeforeCompile, item.hook);
+      assert.equal(readCompileHook(item.material), item.hook);
       assert.equal(item.mesh.geometry.getAttribute('aWrapCoord'), undefined);
     }
   } finally {
