@@ -26,6 +26,7 @@ import {
   UnlockKeyhole,
 } from 'lucide-react';
 import type { WrapEditState, WrapHintCode } from '@/lib/vehicle-wrap-editor';
+import type { VehiclePalette } from '@/lib/vehicle-palettes';
 export interface VehicleHandle {
   applySticker: (s: Sticker | null) => Promise<void>;
   setView: (view: string) => void;
@@ -34,6 +35,7 @@ export interface VehicleHandle {
 interface Props {
   lang: Lang;
   presentation: Presentation;
+  palette: VehiclePalette | null;
   generating: boolean;
   onCommit: (sticker: Sticker | null) => void;
   parts: Record<string, boolean>;
@@ -120,6 +122,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
               engine.current?.setWipers(latest.current.wipers);
               engine.current?.setEnvironment(latest.current.environment);
               engine.current?.setGenerating(latest.current.generating);
+              engine.current?.setPalette(latest.current.palette);
               engine.current?.setPresentation(latest.current.presentation);
               host.current
                 ?.querySelector('canvas')
@@ -141,6 +144,9 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
               }
             },
           });
+          // The lazy engine can be created after the user already chose colors.
+          engine.current.setPalette(latest.current.palette);
+          engine.current.setPresentation(latest.current.presentation);
         } catch {
           setError(t(latest.current.lang, 'scene.webglUnsupported'));
         }
@@ -165,6 +171,7 @@ const VehicleScene = forwardRef<VehicleHandle, Props>(
       () => engine.current?.setPresentation(props.presentation),
       [props.presentation],
     );
+    useEffect(() => engine.current?.setPalette(props.palette), [props.palette]);
     useEffect(() => engine.current?.setParts(props.parts), [props.parts]);
     useEffect(() => engine.current?.setWipers(props.wipers), [props.wipers]);
     useEffect(

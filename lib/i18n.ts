@@ -8,6 +8,22 @@
 export type Lang = 'en' | 'zh';
 
 const en = {
+  'palette.title': 'Local color palettes',
+  'palette.description':
+    'Approximate colors · lower band with a fine waistline',
+  'palette.restore': 'Original colors',
+  'palette.swatchAria':
+    '{name}. Base {white}, lower band {accent}, waistline {trim}.',
+  'palette.powderBlue': 'Powder blue × cloud white',
+  'palette.laurelGreen': 'Laurel green × candy white',
+  'palette.mustardYellow': 'Mustard yellow × pearl white',
+  'palette.cherryRed': 'Cherry red × cream white',
+  'palette.lagoonGreen': 'Lagoon green × snow white',
+  'palette.vibrantOrange': 'Vibrant orange × candy white',
+  'palette.forestGreen': 'Forest green × soft white',
+  'palette.coffeeBeige': 'Coffee beige × milk white',
+  'palette.sakuraPink': 'Sakura pink × white + mint line',
+  'palette.charcoalBlue': 'Charcoal blue × candy white',
   'header.resetAll': 'Reset all',
   'page.heroTitle': 'Put your idea on the van.',
   'page.bodyLabLink': 'Parametric body',
@@ -381,6 +397,21 @@ const en = {
 export type StringKey = keyof typeof en;
 
 const zh: Record<StringKey, string> = {
+  'palette.title': '本地预设配色',
+  'palette.description': '近似色值 · 下部色带与细腰线',
+  'palette.restore': '恢复原色',
+  'palette.swatchAria':
+    '{name}。白色基底 {white}，下部色带 {accent}，细腰线 {trim}。',
+  'palette.powderBlue': '复古粉蓝 × 云白',
+  'palette.laurelGreen': '月桂绿 × 糖果白',
+  'palette.mustardYellow': '芥末黄 × 珍珠白',
+  'palette.cherryRed': '樱桃红 × 奶油白',
+  'palette.lagoonGreen': '湖水绿 × 雪白',
+  'palette.vibrantOrange': '活力橙 × 糖果白',
+  'palette.forestGreen': '森林绿 × 美白',
+  'palette.coffeeBeige': '奶咖米 × 奶白',
+  'palette.sakuraPink': '樱花粉 × 白 + 薄荷线',
+  'palette.charcoalBlue': '炭蓝 × 糖果白',
   'header.resetAll': '收起全部',
   'page.heroTitle': '让灵感，贴上车身。',
   'page.bodyLabLink': '参数化车体',

@@ -18,6 +18,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { waitingPose } from '../../lib/stage-motion.ts';
+import type { VehiclePalette } from '../../lib/vehicle-palettes.ts';
 import type { Sticker } from '@/lib/stickers';
 export type MotionNode = {
   name: string;
@@ -107,6 +108,7 @@ export class SceneEngine {
   private waitWeight = 0;
   private displayPoses: Record<string, number> = {};
   private presentation: Presentation = 'drawing';
+  private palette: VehiclePalette | null = null;
   private drafting: {
     mesh: THREE.Mesh;
     original: THREE.Material | THREE.Material[];
@@ -346,6 +348,7 @@ export class SceneEngine {
         onChange: (state) => this.hooks.onWrapEdit?.(state),
         takeCamera: this.cancelCameraTween,
       });
+      this.wrapEditor.setPalette(this.palette);
       const meshes: THREE.Mesh[] = [];
       this.root.traverse((o) => {
         if (o instanceof THREE.Mesh) meshes.push(o);
@@ -583,6 +586,11 @@ export class SceneEngine {
     for (const lines of this.drawingLines) lines.visible = value === 'drawing';
     this.drawingGrid.visible = this.environment === 'studio';
   }
+  setPalette(palette: VehiclePalette | null) {
+    this.palette = palette;
+    this.wrapEditor?.setPalette(palette);
+    if (palette) this.setPresentation('render');
+  }
   setEnvironment(value: 'camp' | 'studio') {
     this.environment = value;
     this.camp.visible = value === 'camp';
@@ -654,7 +662,7 @@ export class SceneEngine {
       this.chosen = null;
       this.paint();
       this.stickerId = null;
-      this.setPresentation('drawing');
+      this.setPresentation(this.palette ? 'render' : 'drawing');
       this.hooks.onCommit(null);
       return;
     }
@@ -858,6 +866,7 @@ export class SceneEngine {
       },
       environment: this.environment,
       presentation: this.presentation,
+      paletteId: this.palette?.id ?? null,
       stickerId: this.stickerId,
       wrapEdit: this.wrapEditor?.getState(),
       wipers: this.wipers,
